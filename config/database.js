@@ -22,14 +22,16 @@ const connectDatabases = async () => {
       dbConfig.connection = await mongoose.createConnection(dbConfig.uri, {
         useNewUrlParser: true,
         useUnifiedTopology: true,
-        serverSelectionTimeoutMS: 5000,
+        serverSelectionTimeoutMS: 10000,
         socketTimeoutMS: 45000,
         connectTimeoutMS: 10000,
-        maxPoolSize: 5,
-        minPoolSize: 1,
+        maxPoolSize: 1,
+        minPoolSize: 0,
         maxIdleTimeMS: 30000,
         retryWrites: true,
-        w: 'majority'
+        w: 'majority',
+        ssl: true,
+        sslValidate: false
       });
       console.log(`✅ Connected to ${name} database`);
     }
