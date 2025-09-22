@@ -12,7 +12,6 @@ Backend para la aplicación Nano con sistema de versionado de transacciones.
 ## 📁 Estructura
 
 ```
-backend/
 ├── config/
 │   └── database.js          # Configuración de múltiples DBs
 ├── models/
@@ -31,7 +30,6 @@ backend/
 
 1. Instalar dependencias:
 ```bash
-cd backend
 npm install
 ```
 
