@@ -21,6 +21,9 @@ const adminRoutes = require('./routes/admin');
 
 const app = express();
 
+// Trust proxy for Render
+app.set('trust proxy', 1);
+
 // Middleware de seguridad
 app.use(helmet());
 app.use(cors());
