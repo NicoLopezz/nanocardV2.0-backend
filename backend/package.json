@@ -1,0 +1,38 @@
+{
+  "name": "nano-backend",
+  "version": "1.0.0",
+  "description": "Backend for Nano financial app with transaction versioning",
+  "main": "app.js",
+  "scripts": {
+    "start": "NODE_ENV=production node app.js",
+    "dev": "NODE_ENV=development nodemon app.js",
+    "test": "NODE_ENV=test jest",
+    "test:watch": "NODE_ENV=test jest --watch",
+    "prod": "NODE_ENV=production node app.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^6.8.1",
+    "helmet": "^7.0.0",
+    "mongoose": "^7.5.0",
+    "node-fetch": "^2.7.0",
+    "jsonwebtoken": "^9.0.2",
+    "bcryptjs": "^2.4.3"
+  },
+  "devDependencies": {
+    "jest": "^29.6.2",
+    "nodemon": "^3.0.1",
+    "supertest": "^6.3.3"
+  },
+  "keywords": [
+    "nano",
+    "financial",
+    "transactions",
+    "versioning",
+    "mongodb"
+  ],
+  "author": "Nicolas",
+  "license": "MIT"
+}
