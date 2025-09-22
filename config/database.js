@@ -19,7 +19,22 @@ const databases = {
 const connectDatabases = async () => {
   try {
     for (const [name, dbConfig] of Object.entries(databases)) {
-      dbConfig.connection = await mongoose.createConnection(dbConfig.uri);
+      dbConfig.connection = await mongoose.createConnection(dbConfig.uri, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true,
+        ssl: true,
+        sslValidate: true,
+        retryWrites: true,
+        w: 'majority',
+        serverSelectionTimeoutMS: 30000,
+        socketTimeoutMS: 45000,
+        connectTimeoutMS: 30000,
+        maxPoolSize: 10,
+        minPoolSize: 1,
+        maxIdleTimeMS: 30000,
+        bufferMaxEntries: 0,
+        bufferCommands: false
+      });
       console.log(`✅ Connected to ${name} database`);
     }
   } catch (error) {
