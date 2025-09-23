@@ -18,7 +18,9 @@ const config = {
     MERCURY_API_KEY: process.env.MERCURY_API_KEY,
     MERCURY_AUTH_TOKEN: process.env.MERCURY_AUTH_TOKEN,
     EMAIL: process.env.EMAIL,
-    EMAIL_PASSWORD: process.env.EMAIL_PASSWORD
+    EMAIL_PASSWORD: process.env.EMAIL_PASSWORD,
+    CRYPTOMATE_API_KEY: process.env.CRYPTOMATE_API_KEY,
+    CRYPTOMATE_SESSION_ID: process.env.CRYPTOMATE_SESSION_ID
   },
   
   production: {
@@ -38,7 +40,9 @@ const config = {
     MERCURY_API_KEY: process.env.MERCURY_API_KEY,
     MERCURY_AUTH_TOKEN: process.env.MERCURY_AUTH_TOKEN,
     EMAIL: process.env.EMAIL,
-    EMAIL_PASSWORD: process.env.EMAIL_PASSWORD
+    EMAIL_PASSWORD: process.env.EMAIL_PASSWORD,
+    CRYPTOMATE_API_KEY: process.env.CRYPTOMATE_API_KEY,
+    CRYPTOMATE_SESSION_ID: process.env.CRYPTOMATE_SESSION_ID
   },
   
   test: {
