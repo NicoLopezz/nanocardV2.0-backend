@@ -16,6 +16,7 @@ const cardsStatsRoutes = require('./routes/internal/cards');
 const authRoutes = require('./routes/internal/auth');
 const adminRoutes = require('./routes/internal/admin');
 const historyRoutes = require('./routes/internal/history');
+const reconciliationRoutes = require('./routes/internal/reconciliations');
 
 // Importar rutas - Desarrollo y testing
 const seedRoutes = require('./routes/dev/seed');
@@ -57,6 +58,7 @@ app.use('/api/cards', cardsStatsRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/history', historyRoutes);
+app.use('/api/reconciliations', reconciliationRoutes);
 
 // Rutas - Desarrollo y testing
 app.use('/api/seed', seedRoutes);

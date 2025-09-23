@@ -17,6 +17,10 @@ const databases = {
   history: {
     uri: config.HISTORY_DB_URI,
     connection: null
+  },
+  reconciliations: {
+    uri: config.RECONCILIATIONS_DB_URI,
+    connection: null
   }
 };
 

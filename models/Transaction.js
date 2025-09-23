@@ -85,6 +85,15 @@ const transactionSchema = new mongoose.Schema({
     reason: String // motivo del cambio
   }],
   
+  // SISTEMA DE CONCILIACIONES
+  reconciled: { 
+    type: Boolean, 
+    default: false 
+  },
+  reconciledAt: Date,
+  reconciledBy: String,
+  reconciliationId: String,
+  
   // Timestamps
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }

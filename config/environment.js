@@ -7,6 +7,7 @@ const config = {
     CARDS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_cards_dev` : 'mongodb://localhost:27017/nano_cards_dev',
     TRANSACTIONS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_transactions_dev` : 'mongodb://localhost:27017/nano_transactions_dev',
     HISTORY_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_history_dev` : 'mongodb://localhost:27017/nano_history_dev',
+    RECONCILIATIONS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_reconciliations_dev` : 'mongodb://localhost:27017/nano_reconciliations_dev',
     
     PORT: process.env.PORT || 3001,
     NODE_ENV: 'development',
@@ -26,6 +27,7 @@ const config = {
     CARDS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_cards_prod` : 'mongodb://localhost:27017/nano_cards_prod',
     TRANSACTIONS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_transactions_prod` : 'mongodb://localhost:27017/nano_transactions_prod',
     HISTORY_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_history_prod` : 'mongodb://localhost:27017/nano_history_prod',
+    RECONCILIATIONS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_reconciliations_prod` : 'mongodb://localhost:27017/nano_reconciliations_prod',
     
     PORT: process.env.PORT || 3001,
     NODE_ENV: 'production',
@@ -44,6 +46,8 @@ const config = {
     USERS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_users_test` : 'mongodb://localhost:27017/nano_users_test',
     CARDS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_cards_test` : 'mongodb://localhost:27017/nano_cards_test',
     TRANSACTIONS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_transactions_test` : 'mongodb://localhost:27017/nano_transactions_test',
+    HISTORY_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_history_test` : 'mongodb://localhost:27017/nano_history_test',
+    RECONCILIATIONS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_reconciliations_test` : 'mongodb://localhost:27017/nano_reconciliations_test',
     
     PORT: process.env.PORT || 3002,
     NODE_ENV: 'test',
