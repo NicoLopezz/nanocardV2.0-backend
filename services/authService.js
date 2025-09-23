@@ -3,6 +3,7 @@ const { getAuthModel } = require('../models/Auth');
 const { getCardModel } = require('../models/Card');
 const { getUserModel } = require('../models/User');
 const config = require('../config/environment');
+const historyService = require('./historyService');
 
 // Función para normalizar nombres (ignorar mayúsculas, espacios al inicio/final)
 const normalizeName = (name) => {
@@ -29,8 +30,10 @@ const generateTokens = (userId, cardId) => {
   return { accessToken, refreshToken };
 };
 
-// Función para verificar login
-const verifyLogin = async (loginName, last4) => {
+// Función para verificar login - OPTIMIZADA
+const verifyLogin = async (loginName, last4, requestInfo = {}) => {
+  const startTime = Date.now();
+  
   try {
     const Card = getCardModel();
     const User = getUserModel();
@@ -41,10 +44,21 @@ const verifyLogin = async (loginName, last4) => {
     
     console.log(`🔐 Attempting login with: "${loginName}" -> "${normalizedLoginName}" and last4: "${last4}"`);
     
-    // Buscar tarjeta por last4
-    const card = await Card.findOne({ last4: last4 });
+    // OPTIMIZACIÓN: Buscar tarjeta con lean() para mejor rendimiento
+    const card = await Card.findOne({ last4: last4 }).lean();
+    
     if (!card) {
       console.log(`❌ Card not found with last4: ${last4}`);
+      
+      // Log login failed
+      await historyService.logLoginFailed(loginName, last4, 'Card not found', {
+        method: 'POST',
+        endpoint: '/api/auth/login',
+        statusCode: 401,
+        responseTime: Date.now() - startTime,
+        ...requestInfo
+      });
+      
       return { success: false, message: 'Invalid credentials' };
     }
     
@@ -56,13 +70,23 @@ const verifyLogin = async (loginName, last4) => {
     // Verificar si los nombres coinciden (normalizados)
     if (normalizedCardName !== normalizedLoginName) {
       console.log(`❌ Name mismatch: "${normalizedLoginName}" != "${normalizedCardName}"`);
+      
+      // Log login failed
+      await historyService.logLoginFailed(loginName, last4, 'Name mismatch', {
+        method: 'POST',
+        endpoint: '/api/auth/login',
+        statusCode: 401,
+        responseTime: Date.now() - startTime,
+        ...requestInfo
+      });
+      
       return { success: false, message: 'Invalid credentials' };
     }
     
-    // Obtener usuario
-    const user = await User.findById(card.userId);
+    // Obtener usuario con lean() para mejor rendimiento
+    const user = await User.findById(card.userId).lean();
     if (!user) {
-      console.log(`❌ User not found for card: ${card.userId}`);
+      console.log(`❌ User not found for card: ${card._id}`);
       return { success: false, message: 'User not found' };
     }
     
@@ -101,7 +125,17 @@ const verifyLogin = async (loginName, last4) => {
     
     await authRecord.save();
     
-    console.log(`✅ Login successful for user: ${card.userId} (${card.name})`);
+    const responseTime = Date.now() - startTime;
+    console.log(`✅ Login successful for user: ${card.userId} (${card.name}) in ${responseTime}ms`);
+    
+    // Log login success
+    await historyService.logLoginSuccess(user, card, {
+      method: 'POST',
+      endpoint: '/api/auth/login',
+      statusCode: 200,
+      responseTime: responseTime,
+      ...requestInfo
+    });
     
     return {
       success: true,
@@ -126,7 +160,8 @@ const verifyLogin = async (loginName, last4) => {
       tokens: {
         accessToken,
         refreshToken
-      }
+      },
+      responseTime: responseTime
     };
     
   } catch (error) {

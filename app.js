@@ -2,8 +2,9 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const { connectDatabases } = require('./config/database-mock');
+const { connectDatabases } = require('./config/database');
 const config = require('./config/environment');
+const timingMiddleware = require('./middleware/timing');
 
 // Importar rutas
 const transactionRoutes = require('./routes/transactions');
@@ -18,11 +19,15 @@ const cleanupRoutes = require('./routes/cleanup');
 const authRoutes = require('./routes/auth');
 const cloneRoutes = require('./routes/clone');
 const adminRoutes = require('./routes/admin');
+const historyRoutes = require('./routes/history');
 
 const app = express();
 
 // Trust proxy for Render
 app.set('trust proxy', 1);
+
+// Middleware de timing
+app.use(timingMiddleware);
 
 // Middleware de seguridad
 app.use(helmet());
@@ -52,6 +57,7 @@ app.use('/api/cleanup', cleanupRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/clone', cloneRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/history', historyRoutes);
 
 // Ruta de health check
 app.get('/api/health', (req, res) => {
@@ -85,10 +91,7 @@ const PORT = config.PORT;
 
 const startServer = async () => {
   try {
-    // Skip database connection to avoid SSL issues
-    console.log('⚠️  Skipping database connection to avoid SSL issues');
-    console.log('✅ Mock databases initialized');
-    
+    await connectDatabases();
     app.listen(PORT, () => {
       console.log(`🚀 Nano Backend running on port ${PORT}`);
       console.log(`🌍 Environment: ${config.NODE_ENV}`);

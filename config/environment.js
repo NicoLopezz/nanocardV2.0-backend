@@ -6,6 +6,7 @@ const config = {
     USERS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_users_dev` : 'mongodb://localhost:27017/nano_users_dev',
     CARDS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_cards_dev` : 'mongodb://localhost:27017/nano_cards_dev',
     TRANSACTIONS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_transactions_dev` : 'mongodb://localhost:27017/nano_transactions_dev',
+    HISTORY_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_history_dev` : 'mongodb://localhost:27017/nano_history_dev',
     
     PORT: process.env.PORT || 3001,
     NODE_ENV: 'development',
@@ -24,6 +25,7 @@ const config = {
     USERS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_users_prod` : 'mongodb://localhost:27017/nano_users_prod',
     CARDS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_cards_prod` : 'mongodb://localhost:27017/nano_cards_prod',
     TRANSACTIONS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_transactions_prod` : 'mongodb://localhost:27017/nano_transactions_prod',
+    HISTORY_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_history_prod` : 'mongodb://localhost:27017/nano_history_prod',
     
     PORT: process.env.PORT || 3001,
     NODE_ENV: 'production',

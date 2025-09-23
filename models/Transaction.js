@@ -47,7 +47,8 @@ const transactionSchema = new mongoose.Schema({
       'TRANSACTION_REVERSED',
       'TRANSACTION_REFUND',
       'WALLET_DEPOSIT',
-      'OVERRIDE_VIRTUAL_BALANCE'
+      'OVERRIDE_VIRTUAL_BALANCE',
+      'WITHDRAWAL'  // Nueva operación para retiros
     ],
     required: true
   },

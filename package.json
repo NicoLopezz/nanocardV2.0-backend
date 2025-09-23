@@ -8,22 +8,30 @@
     "dev": "NODE_ENV=development nodemon app.js",
     "test": "NODE_ENV=test jest",
     "test:watch": "NODE_ENV=test jest --watch",
-    "prod": "NODE_ENV=production node app.js"
+    "prod": "NODE_ENV=production node app.js",
+    "cleanup:dev": "NODE_ENV=development node scripts/cleanup-dev-databases.js",
+    "regenerate:dev": "NODE_ENV=development node scripts/regenerate-dev-data.js",
+    "reset:dev": "npm run cleanup:dev && npm run regenerate:dev",
+    "create:admin": "NODE_ENV=development node scripts/create-admin-user.js",
+    "cleanup:transactions": "NODE_ENV=development node scripts/cleanup-transactions.js",
+    "recalculate:totals": "NODE_ENV=development node scripts/recalculate-card-totals.js"
   },
   "dependencies": {
+    "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "express-rate-limit": "^6.8.1",
     "helmet": "^7.0.0",
-    "mongoose": "^7.5.0",
-    "node-fetch": "^2.7.0",
     "jsonwebtoken": "^9.0.2",
-    "bcryptjs": "^2.4.3"
+    "mongoose": "^7.5.0",
+    "node-cache": "^5.1.2",
+    "node-fetch": "^2.7.0",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "jest": "^29.6.2",
-    "nodemon": "^3.0.1",
+    "nodemon": "^3.1.10",
     "supertest": "^6.3.3"
   },
   "keywords": [

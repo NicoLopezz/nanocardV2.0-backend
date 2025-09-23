@@ -128,9 +128,7 @@ const convertCryptoMateTransactionToNano = async (cryptoTransaction, cardId, use
     mcc_category: cryptoTransaction.mcc_category,
     mercuryCategory: cryptoTransaction.mercuryCategory,
     credit: cryptoTransaction.operation === 'WALLET_DEPOSIT' || cryptoTransaction.operation === 'TRANSACTION_REFUND' || cryptoTransaction.operation === 'OVERRIDE_VIRTUAL_BALANCE',
-    comentario: cryptoTransaction.operation === 'OVERRIDE_VIRTUAL_BALANCE' 
-      ? `Initial deposit from CryptoMate (original balance: ${cryptoTransaction.original_balance}, new balance: ${cryptoTransaction.new_balance})`
-      : `${cryptoTransaction.operation} - ${cryptoTransaction.merchant_name}`,
+    comentario: '', // Vacío por defecto - sin comentarios automáticos
     version: 1,
     history: [{
       version: 1,

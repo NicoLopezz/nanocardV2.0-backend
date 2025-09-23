@@ -13,6 +13,10 @@ const databases = {
   transactions: {
     uri: config.TRANSACTIONS_DB_URI,
     connection: null
+  },
+  history: {
+    uri: config.HISTORY_DB_URI,
+    connection: null
   }
 };
 
