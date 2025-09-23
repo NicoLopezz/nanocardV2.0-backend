@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
-const { connectDatabases } = require('./config/database');
+const { connectDatabases } = require('./config/database-mock');
 const config = require('./config/environment');
 
 // Importar rutas

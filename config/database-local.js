@@ -1,17 +1,16 @@
 const mongoose = require('mongoose');
-const config = require('./environment');
 
 const databases = {
   users: {
-    uri: config.USERS_DB_URI,
+    uri: 'mongodb://localhost:27017/nano_users_dev',
     connection: null
   },
   cards: {
-    uri: config.CARDS_DB_URI,
+    uri: 'mongodb://localhost:27017/nano_cards_dev',
     connection: null
   },
   transactions: {
-    uri: config.TRANSACTIONS_DB_URI,
+    uri: 'mongodb://localhost:27017/nano_transactions_dev',
     connection: null
   }
 };
@@ -27,9 +26,7 @@ const connectDatabases = async () => {
         connectTimeoutMS: 5000,
         maxPoolSize: 1,
         minPoolSize: 0,
-        maxIdleTimeMS: 30000,
-        retryWrites: true,
-        w: 'majority'
+        maxIdleTimeMS: 30000
       });
       console.log(`✅ Connected to ${name} database`);
     }
