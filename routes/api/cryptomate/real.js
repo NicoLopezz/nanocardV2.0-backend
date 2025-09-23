@@ -4,23 +4,16 @@ const { getUserModel } = require('../../../models/User');
 const { getCardModel } = require('../../../models/Card');
 const { getTransactionModel } = require('../../../models/Transaction');
 const { convertCryptoMateCardToNano } = require('../../../services/cryptomateService');
+const config = require('../../../config/environment');
 
 // Función para traer todas las tarjetas reales de CryptoMate
 const fetchAllRealCards = async () => {
   const { exec } = require('child_process');
   const { promisify } = require('util');
-  const config = require('../../config/environment');
   const execAsync = promisify(exec);
   
   try {
-    const apiKey = config.API_KEY;
-    const sessionId = '7216B94569B249C7E74CF7409C99C656'; // Session ID fijo por ahora
-    
-    if (!apiKey) {
-      throw new Error('API_KEY must be set in environment variables');
-    }
-    
-    const curlCommand = `curl --location 'https://api.cryptomate.me/cards/virtual-cards/list' --header 'x-api-key: ${apiKey}' --header 'Content-Type: application/json' --header 'Cookie: JSESSIONID=${sessionId}'`;
+    const curlCommand = `curl --location 'https://api.cryptomate.me/cards/virtual-cards/list' --header 'x-api-key: api-45f14849-914c-420e-a788-2e969d92bd5d' --header 'Content-Type: application/json' --header 'Cookie: JSESSIONID=7216B94569B249C7E74CF7409C99C656'`;
     
     console.log('🚀 Fetching ALL real cards from CryptoMate...');
     const { stdout, stderr } = await execAsync(curlCommand);
@@ -42,18 +35,10 @@ const fetchAllRealCards = async () => {
 const fetchCardBalanceFromCryptoMate = async (cardId) => {
   const { exec } = require('child_process');
   const { promisify } = require('util');
-  const config = require('../../config/environment');
   const execAsync = promisify(exec);
   
   try {
-    const apiKey = config.API_KEY;
-    const sessionId = '7216B94569B249C7E74CF7409C99C656'; // Session ID fijo por ahora
-    
-    if (!apiKey) {
-      throw new Error('API_KEY must be set in environment variables');
-    }
-    
-    const curlCommand = `curl --location 'https://api.cryptomate.me/cards/virtual-cards/${cardId}/virtual-balances' --header 'x-api-key: ${apiKey}' --header 'Content-Type: application/json' --header 'Cookie: JSESSIONID=${sessionId}'`;
+    const curlCommand = `curl --location 'https://api.cryptomate.me/cards/virtual-cards/${cardId}/virtual-balances' --header 'x-api-key: api-45f14849-914c-420e-a788-2e969d92bd5d' --header 'Content-Type: application/json' --header 'Cookie: JSESSIONID=7216B94569B249C7E74CF7409C99C656'`;
     
     console.log(`🚀 Fetching balance for card ${cardId} from CryptoMate...`);
     const { stdout, stderr } = await execAsync(curlCommand);
@@ -72,30 +57,13 @@ const fetchCardBalanceFromCryptoMate = async (cardId) => {
 };
 
 // Función para traer transacciones de una tarjeta específica (ACTUALIZADA CON OPERATIONS)
-const fetchTransactionsFromCard = async (cardId, fromDate = null, toDate = null, page = 1, operations = 'TRANSACTION_APPROVED,TRANSACTION_REJECTED,TRANSACTION_REVERSED,TRANSACTION_REFUND,WALLET_DEPOSIT,OVERRIDE_VIRTUAL_BALANCE') => {
+const fetchTransactionsFromCard = async (cardId, fromDate = '2024-01-01', toDate = '2025-01-25', page = 1, operations = 'TRANSACTION_APPROVED,TRANSACTION_REJECTED,TRANSACTION_REVERSED,TRANSACTION_REFUND,WALLET_DEPOSIT,OVERRIDE_VIRTUAL_BALANCE') => {
   const { exec } = require('child_process');
   const { promisify } = require('util');
-  const config = require('../../config/environment');
   const execAsync = promisify(exec);
   
   try {
-    // Fechas dinámicas: from = 2024-01-01, to = fecha actual
-    const defaultFromDate = '2024-01-01';
-    const defaultToDate = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-    
-    const finalFromDate = fromDate || defaultFromDate;
-    const finalToDate = toDate || defaultToDate;
-    
-    console.log(`📅 Using date range: ${finalFromDate} to ${finalToDate}`);
-    
-    const apiKey = config.API_KEY;
-    const sessionId = '7216B94569B249C7E74CF7409C99C656'; // Session ID fijo por ahora
-    
-    if (!apiKey) {
-      throw new Error('API_KEY must be set in environment variables');
-    }
-    
-    const curlCommand = `curl --location 'https://api.cryptomate.me/cards/transactions/${cardId}/search?from_date=${finalFromDate}&to_date=${finalToDate}&operations=${operations}&size=100&page_number=${page}' --header 'x-api-key: ${apiKey}' --header 'Content-Type: application/json' --header 'Cookie: JSESSIONID=${sessionId}'`;
+    const curlCommand = `curl --location 'https://api.cryptomate.me/cards/transactions/${cardId}/search?from_date=${fromDate}&to_date=${toDate}&operations=${operations}&size=100&page_number=${page}' --header 'x-api-key: api-45f14849-914c-420e-a788-2e969d92bd5d' --header 'Content-Type: application/json' --header 'Cookie: JSESSIONID=7216B94569B249C7E74CF7409C99C656'`;
     
     console.log(`🚀 Fetching transactions for card ${cardId} (page ${page}) with operations: ${operations}...`);
     const { stdout, stderr } = await execAsync(curlCommand);
@@ -308,13 +276,12 @@ router.post('/import-transactions/:cardId', async (req, res) => {
     const { cardId } = req.params;
     const { 
       fromDate = '2024-01-01', 
-      toDate = new Date().toISOString().split('T')[0], 
+      toDate = '2025-01-25', 
       maxPages = 5,
       operations = 'TRANSACTION_APPROVED,TRANSACTION_REJECTED,TRANSACTION_REVERSED,TRANSACTION_REFUND,WALLET_DEPOSIT,OVERRIDE_VIRTUAL_BALANCE'
     } = req.body;
     
     console.log(`🚀 Starting transaction import for card: ${cardId}`);
-    console.log(`📅 Date range: ${fromDate} to ${toDate}`);
     console.log(`📋 Operations to fetch: ${operations}`);
     
     const User = getUserModel();

@@ -18,9 +18,7 @@ const config = {
     MERCURY_API_KEY: process.env.MERCURY_API_KEY,
     MERCURY_AUTH_TOKEN: process.env.MERCURY_AUTH_TOKEN,
     EMAIL: process.env.EMAIL,
-    EMAIL_PASSWORD: process.env.EMAIL_PASSWORD,
-    CRYPTOMATE_API_KEY: process.env.CRYPTOMATE_API_KEY,
-    CRYPTOMATE_SESSION_ID: process.env.CRYPTOMATE_SESSION_ID
+    EMAIL_PASSWORD: process.env.EMAIL_PASSWORD
   },
   
   production: {
@@ -40,9 +38,7 @@ const config = {
     MERCURY_API_KEY: process.env.MERCURY_API_KEY,
     MERCURY_AUTH_TOKEN: process.env.MERCURY_AUTH_TOKEN,
     EMAIL: process.env.EMAIL,
-    EMAIL_PASSWORD: process.env.EMAIL_PASSWORD,
-    CRYPTOMATE_API_KEY: process.env.CRYPTOMATE_API_KEY,
-    CRYPTOMATE_SESSION_ID: process.env.CRYPTOMATE_SESSION_ID
+    EMAIL_PASSWORD: process.env.EMAIL_PASSWORD
   },
   
   test: {
@@ -78,5 +74,7 @@ console.log(`🌍 Environment: ${env}`);
 console.log(`🗄️ Users DB: ${currentConfig.USERS_DB_URI}`);
 console.log(`💳 Cards DB: ${currentConfig.CARDS_DB_URI}`);
 console.log(`💰 Transactions DB: ${currentConfig.TRANSACTIONS_DB_URI}`);
+console.log(`📚 History DB: ${currentConfig.HISTORY_DB_URI}`);
+console.log(`🔄 Reconciliations DB: ${currentConfig.RECONCILIATIONS_DB_URI}`);
 
 module.exports = currentConfig;
