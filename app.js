@@ -6,20 +6,23 @@ const { connectDatabases } = require('./config/database');
 const config = require('./config/environment');
 const timingMiddleware = require('./middleware/timing');
 
-// Importar rutas
-const transactionRoutes = require('./routes/transactions');
-const cryptomateRoutes = require('./routes/cryptomate');
-const seedRoutes = require('./routes/seed');
-const testCryptoMateRoutes = require('./routes/test-cryptomate');
-const testCardsRoutes = require('./routes/test-cards');
-const realCryptoMateRoutes = require('./routes/real-cryptomate');
-const cardsStatsRoutes = require('./routes/cards-stats');
-const cardStatsRoutes = require('./routes/card-stats');
-const cleanupRoutes = require('./routes/cleanup');
-const authRoutes = require('./routes/auth');
-const cloneRoutes = require('./routes/clone');
-const adminRoutes = require('./routes/admin');
-const historyRoutes = require('./routes/history');
+// Importar rutas - APIs externas
+const cryptomateRoutes = require('./routes/api/cryptomate/index');
+const realCryptoMateRoutes = require('./routes/api/cryptomate/real');
+
+// Importar rutas - APIs internas
+const transactionRoutes = require('./routes/internal/transactions');
+const cardsStatsRoutes = require('./routes/internal/cards');
+const authRoutes = require('./routes/internal/auth');
+const adminRoutes = require('./routes/internal/admin');
+const historyRoutes = require('./routes/internal/history');
+
+// Importar rutas - Desarrollo y testing
+const seedRoutes = require('./routes/dev/seed');
+const testCryptoMateRoutes = require('./routes/dev/test/test-cryptomate');
+const testCardsRoutes = require('./routes/dev/test/test-cards');
+const cleanupRoutes = require('./routes/dev/cleanup');
+const cloneRoutes = require('./routes/dev/clone');
 
 const app = express();
 
@@ -44,20 +47,23 @@ app.use(limiter);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Rutas
-app.use('/api/transactions', transactionRoutes);
+// Rutas - APIs externas
 app.use('/api/cryptomate', cryptomateRoutes);
+app.use('/api/real-cryptomate', realCryptoMateRoutes);
+
+// Rutas - APIs internas
+app.use('/api/transactions', transactionRoutes);
+app.use('/api/cards', cardsStatsRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/history', historyRoutes);
+
+// Rutas - Desarrollo y testing
 app.use('/api/seed', seedRoutes);
 app.use('/api/test', testCryptoMateRoutes);
 app.use('/api/test-cards', testCardsRoutes);
-app.use('/api/real-cryptomate', realCryptoMateRoutes);
-app.use('/api/cards', cardsStatsRoutes);
-app.use('/api/card-stats', cardStatsRoutes);
 app.use('/api/cleanup', cleanupRoutes);
-app.use('/api/auth', authRoutes);
 app.use('/api/clone', cloneRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/history', historyRoutes);
 
 // Ruta de health check
 app.get('/api/health', (req, res) => {
