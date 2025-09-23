@@ -13,8 +13,12 @@ const fetchAllRealCards = async () => {
   const execAsync = promisify(exec);
   
   try {
-    const apiKey = config.CRYPTOMATE_API_KEY || 'api-45f14849-914c-420e-a788-2e969d92bd5d';
-    const sessionId = config.CRYPTOMATE_SESSION_ID || '7216B94569B249C7E74CF7409C99C656';
+    const apiKey = config.CRYPTOMATE_API_KEY;
+    const sessionId = config.CRYPTOMATE_SESSION_ID;
+    
+    if (!apiKey || !sessionId) {
+      throw new Error('CRYPTOMATE_API_KEY and CRYPTOMATE_SESSION_ID must be set in environment variables');
+    }
     
     const curlCommand = `curl --location 'https://api.cryptomate.me/cards/virtual-cards/list' --header 'x-api-key: ${apiKey}' --header 'Content-Type: application/json' --header 'Cookie: JSESSIONID=${sessionId}'`;
     
@@ -42,8 +46,12 @@ const fetchCardBalanceFromCryptoMate = async (cardId) => {
   const execAsync = promisify(exec);
   
   try {
-    const apiKey = config.CRYPTOMATE_API_KEY || 'api-45f14849-914c-420e-a788-2e969d92bd5d';
-    const sessionId = config.CRYPTOMATE_SESSION_ID || '7216B94569B249C7E74CF7409C99C656';
+    const apiKey = config.CRYPTOMATE_API_KEY;
+    const sessionId = config.CRYPTOMATE_SESSION_ID;
+    
+    if (!apiKey || !sessionId) {
+      throw new Error('CRYPTOMATE_API_KEY and CRYPTOMATE_SESSION_ID must be set in environment variables');
+    }
     
     const curlCommand = `curl --location 'https://api.cryptomate.me/cards/virtual-cards/${cardId}/virtual-balances' --header 'x-api-key: ${apiKey}' --header 'Content-Type: application/json' --header 'Cookie: JSESSIONID=${sessionId}'`;
     
@@ -78,8 +86,12 @@ const fetchTransactionsFromCard = async (cardId, fromDate = null, toDate = null,
     const finalFromDate = fromDate || defaultFromDate;
     const finalToDate = toDate || defaultToDate;
     
-    const apiKey = config.CRYPTOMATE_API_KEY || 'api-45f14849-914c-420e-a788-2e969d92bd5d';
-    const sessionId = config.CRYPTOMATE_SESSION_ID || '7216B94569B249C7E74CF7409C99C656';
+    const apiKey = config.CRYPTOMATE_API_KEY;
+    const sessionId = config.CRYPTOMATE_SESSION_ID;
+    
+    if (!apiKey || !sessionId) {
+      throw new Error('CRYPTOMATE_API_KEY and CRYPTOMATE_SESSION_ID must be set in environment variables');
+    }
     
     const curlCommand = `curl --location 'https://api.cryptomate.me/cards/transactions/${cardId}/search?from_date=${finalFromDate}&to_date=${finalToDate}&operations=${operations}&size=100&page_number=${page}' --header 'x-api-key: ${apiKey}' --header 'Content-Type: application/json' --header 'Cookie: JSESSIONID=${sessionId}'`;
     
