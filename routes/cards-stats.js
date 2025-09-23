@@ -1,11 +1,11 @@
 const express = require('express');
 const router = express.Router();
-const { getCardModel } = require('../../models/Card');
-const { getUserModel } = require('../../models/User');
-const { getTransactionModel } = require('../../models/Transaction');
-const { authenticateToken } = require('../../middleware/auth');
-const cacheService = require('../../services/cacheService');
-const historyService = require('../../services/historyService');
+const { getCardModel } = require('../models/Card');
+const { getUserModel } = require('../models/User');
+const { getTransactionModel } = require('../models/Transaction');
+const { authenticateToken } = require('../middleware/auth');
+const cacheService = require('../services/cacheService');
+const historyService = require('../services/historyService');
 const { v4: uuidv4 } = require('uuid');
 
 // Endpoint para obtener las tarjetas del usuario autenticado

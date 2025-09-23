@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const { getUserModel } = require('../models/User');
-const { getCardModel } = require('../models/Card');
-const { getTransactionModel } = require('../models/Transaction');
+const { getUserModel } = require('../../models/User');
+const { getCardModel } = require('../../models/Card');
+const { getTransactionModel } = require('../../models/Transaction');
 
 // Crear datos de prueba
 router.post('/create-sample-data', async (req, res) => {

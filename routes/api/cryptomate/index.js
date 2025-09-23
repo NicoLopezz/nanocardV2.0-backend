@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { importAllCardsFromCryptoMate, fetchCardsFromCryptoMate } = require('../services/cryptomateService');
+const { importAllCardsFromCryptoMate, fetchCardsFromCryptoMate } = require('../../../services/cryptomateService');
 
 // Importar todas las tarjetas desde CryptoMate
 router.post('/import', async (req, res) => {

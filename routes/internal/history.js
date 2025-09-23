@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const historyService = require('../services/historyService');
-const { authenticateToken } = require('../middleware/auth');
+const historyService = require('../../services/historyService');
+const { authenticateToken } = require('../../middleware/auth');
 
 // Endpoint para obtener historial por entidad
 router.get('/entity/:entityType/:entityId', authenticateToken, async (req, res) => {
@@ -148,7 +148,7 @@ router.get('/recent', authenticateToken, async (req, res) => {
       });
     }
     
-    const { getHistoryModel } = require('../models/History');
+    const { getHistoryModel } = require('../../models/History');
     const History = getHistoryModel();
     
     const history = await History.find({})

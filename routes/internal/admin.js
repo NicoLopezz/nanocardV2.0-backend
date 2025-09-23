@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { getUserModel } = require('../models/User');
-const { getCardModel } = require('../models/Card');
+const { getUserModel } = require('../../models/User');
+const { getCardModel } = require('../../models/Card');
 
 // Middleware para verificar que el usuario sea admin
 const requireAdmin = async (req, res, next) => {
@@ -12,7 +12,7 @@ const requireAdmin = async (req, res, next) => {
     }
 
     const jwt = require('jsonwebtoken');
-    const config = require('../config/environment');
+    const config = require('../../config/environment');
     const decoded = jwt.verify(token, config.JWT_SECRET);
     
     const User = getUserModel();

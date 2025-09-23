@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { getUserModel } = require('../models/User');
+const { getUserModel } = require('../../models/User');
 
 // Endpoint para limpiar los lastName artificiales "Card"
 router.post('/cleanup-artificial-lastnames', async (req, res) => {

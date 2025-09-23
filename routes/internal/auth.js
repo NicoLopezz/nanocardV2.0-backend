@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { verifyLogin, refreshToken } = require('../services/authService');
-const { authenticateToken } = require('../middleware/auth');
+const { verifyLogin, refreshToken } = require('../../services/authService');
+const { authenticateToken } = require('../../middleware/auth');
 
 // Endpoint de login
 router.post('/login', async (req, res) => {

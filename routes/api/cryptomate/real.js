@@ -1,9 +1,9 @@
 const express = require('express');
 const router = express.Router();
-const { getUserModel } = require('../models/User');
-const { getCardModel } = require('../models/Card');
-const { getTransactionModel } = require('../models/Transaction');
-const { convertCryptoMateCardToNano } = require('../services/cryptomateService');
+const { getUserModel } = require('../../../models/User');
+const { getCardModel } = require('../../../models/Card');
+const { getTransactionModel } = require('../../../models/Transaction');
+const { convertCryptoMateCardToNano } = require('../../../services/cryptomateService');
 
 // Función para traer todas las tarjetas reales de CryptoMate
 const fetchAllRealCards = async () => {

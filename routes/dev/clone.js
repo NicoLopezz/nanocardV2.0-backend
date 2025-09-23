@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
-const config = require('../config/environment');
+const config = require('../../config/environment');
 
 // Función para clonar datos de dev a prod usando los modelos existentes
 const cloneDevToProd = async () => {
@@ -13,9 +13,9 @@ const cloneDevToProd = async () => {
     process.env.NODE_ENV = 'development';
     
     // Importar modelos con configuración de dev
-    const { getUserModel } = require('../models/User');
-    const { getCardModel } = require('../models/Card');
-    const { getTransactionModel } = require('../models/Transaction');
+    const { getUserModel } = require('../../models/User');
+    const { getCardModel } = require('../../models/Card');
+    const { getTransactionModel } = require('../../models/Transaction');
     
     // Obtener datos de dev
     const User = getUserModel();
@@ -33,7 +33,7 @@ const cloneDevToProd = async () => {
     process.env.NODE_ENV = 'production';
     
     // Limpiar y reconectar para prod
-    const { databases } = require('../config/database');
+    const { databases } = require('../../config/database');
     
     // Limpiar bases de datos de producción
     console.log('🧹 Cleaning production databases...');

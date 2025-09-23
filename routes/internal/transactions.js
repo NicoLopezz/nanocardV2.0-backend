@@ -8,8 +8,8 @@ const {
   getTransactionsByCard,
   getTransactionHistory,
   getDeletedTransactions
-} = require('../services/transactionService');
-const { getTransactionModel } = require('../models/Transaction');
+} = require('../../services/transactionService');
+const { getTransactionModel } = require('../../models/Transaction');
 
 // Obtener transacciones por tarjeta
 router.get('/:userId/cards/:cardId/transactions', async (req, res) => {
