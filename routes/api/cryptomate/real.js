@@ -308,7 +308,7 @@ router.post('/import-transactions/:cardId', async (req, res) => {
     const { cardId } = req.params;
     const { 
       fromDate = '2024-01-01', 
-      toDate = '2025-01-25', 
+      toDate = new Date().toISOString().split('T')[0], 
       maxPages = 5,
       operations = 'TRANSACTION_APPROVED,TRANSACTION_REJECTED,TRANSACTION_REVERSED,TRANSACTION_REFUND,WALLET_DEPOSIT,OVERRIDE_VIRTUAL_BALANCE'
     } = req.body;
