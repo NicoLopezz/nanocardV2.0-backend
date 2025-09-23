@@ -85,7 +85,7 @@ const PORT = config.PORT;
 
 const startServer = async () => {
   try {
-    // Skip database connection for now to avoid SSL issues
+    // Skip database connection to avoid SSL issues
     console.log('⚠️  Skipping database connection to avoid SSL issues');
     console.log('✅ Mock databases initialized');
     
