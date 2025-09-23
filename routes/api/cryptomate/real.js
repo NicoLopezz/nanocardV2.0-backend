@@ -314,6 +314,7 @@ router.post('/import-transactions/:cardId', async (req, res) => {
     } = req.body;
     
     console.log(`🚀 Starting transaction import for card: ${cardId}`);
+    console.log(`📅 Date range: ${fromDate} to ${toDate}`);
     console.log(`📋 Operations to fetch: ${operations}`);
     
     const User = getUserModel();
