@@ -3,11 +3,11 @@ require('dotenv').config();
 const config = {
   development: {
     // Base de datos de desarrollo en MongoDB Atlas
-    USERS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_users_dev` : 'mongodb://localhost:27017/nano_users_dev',
-    CARDS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_cards_dev` : 'mongodb://localhost:27017/nano_cards_dev',
-    TRANSACTIONS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_transactions_dev` : 'mongodb://localhost:27017/nano_transactions_dev',
-    HISTORY_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_history_dev` : 'mongodb://localhost:27017/nano_history_dev',
-    RECONCILIATIONS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_reconciliations_dev` : 'mongodb://localhost:27017/nano_reconciliations_dev',
+    USERS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}dev_users` : 'mongodb://localhost:27017/dev_users',
+    CARDS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}dev_cards` : 'mongodb://localhost:27017/dev_cards',
+    TRANSACTIONS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}dev_transactions` : 'mongodb://localhost:27017/dev_transactions',
+    HISTORY_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}dev_history` : 'mongodb://localhost:27017/dev_history',
+    RECONCILIATIONS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}dev_reconciliations` : 'mongodb://localhost:27017/dev_reconciliations',
     
     PORT: process.env.PORT || 3001,
     NODE_ENV: 'development',
@@ -23,11 +23,11 @@ const config = {
   
   production: {
     // Base de datos de producción en MongoDB Atlas
-    USERS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_users_prod` : 'mongodb://localhost:27017/nano_users_prod',
-    CARDS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_cards_prod` : 'mongodb://localhost:27017/nano_cards_prod',
-    TRANSACTIONS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_transactions_prod` : 'mongodb://localhost:27017/nano_transactions_prod',
-    HISTORY_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_history_prod` : 'mongodb://localhost:27017/nano_history_prod',
-    RECONCILIATIONS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_reconciliations_prod` : 'mongodb://localhost:27017/nano_reconciliations_prod',
+    USERS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}prod_users` : 'mongodb://localhost:27017/prod_users',
+    CARDS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}prod_cards` : 'mongodb://localhost:27017/prod_cards',
+    TRANSACTIONS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}prod_transactions` : 'mongodb://localhost:27017/prod_transactions',
+    HISTORY_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}prod_history` : 'mongodb://localhost:27017/prod_history',
+    RECONCILIATIONS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}prod_reconciliations` : 'mongodb://localhost:27017/prod_reconciliations',
     
     PORT: process.env.PORT || 3001,
     NODE_ENV: 'production',
@@ -43,11 +43,11 @@ const config = {
   
   test: {
     // Base de datos de testing en MongoDB Atlas
-    USERS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_users_test` : 'mongodb://localhost:27017/nano_users_test',
-    CARDS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_cards_test` : 'mongodb://localhost:27017/nano_cards_test',
-    TRANSACTIONS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_transactions_test` : 'mongodb://localhost:27017/nano_transactions_test',
-    HISTORY_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_history_test` : 'mongodb://localhost:27017/nano_history_test',
-    RECONCILIATIONS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}nano_reconciliations_test` : 'mongodb://localhost:27017/nano_reconciliations_test',
+    USERS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}test_users` : 'mongodb://localhost:27017/test_users',
+    CARDS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}test_cards` : 'mongodb://localhost:27017/test_cards',
+    TRANSACTIONS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}test_transactions` : 'mongodb://localhost:27017/test_transactions',
+    HISTORY_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}test_history` : 'mongodb://localhost:27017/test_history',
+    RECONCILIATIONS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}test_reconciliations` : 'mongodb://localhost:27017/test_reconciliations',
     
     PORT: process.env.PORT || 3002,
     NODE_ENV: 'test',

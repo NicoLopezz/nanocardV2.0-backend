@@ -121,19 +121,40 @@ class ReconciliationService {
       };
       
       // Crear la conciliación
-      const reconciliation = new Reconciliation({
-        _id: reconciliationId,
-        userId: userId,
-        userName: user.username,
-        userEmail: user.email,
-        name: reconciliationData.name || `Reconciliation ${new Date().toLocaleDateString()}`,
-        description: reconciliationData.description,
-        reconciliationDate: new Date(),
-        createdBy: createdBy,
-        userSnapshot: userSnapshot,
-        financialSummary: financialSummary,
-        snapshotMetadata: snapshotMetadata
-      });
+        const reconciliation = new Reconciliation({
+          _id: reconciliationId,
+          userId: userId,
+          userName: user.username,
+          userEmail: user.email,
+          name: reconciliationData.name || `Reconciliation ${new Date().toLocaleDateString()}`,
+          description: reconciliationData.description,
+          reconciliationDate: new Date(),
+          createdBy: createdBy,
+          userSnapshot: userSnapshot,
+          financialSummary: financialSummary,
+          snapshotMetadata: snapshotMetadata,
+          // NUEVOS CAMPOS DEL FRONTEND
+          summary: reconciliationData.summary || {
+            moneyIn: financialSummary.totalDeposited || 0,
+            posted: financialSummary.totalPosted || 0,
+            pending: financialSummary.totalPending || 0,
+            available: financialSummary.totalAvailable || 0,
+            totalTransactions: transactions.length,
+            deposits: transactions.filter(t => t.operation === 'WALLET_DEPOSIT').length,
+            withdrawals: transactions.filter(t => t.operation === 'TRANSACTION_APPROVED').length
+          },
+          transactions: reconciliationData.transactions || {
+            count: transactions.length,
+            ids: transactions.map(t => t._id),
+            details: transactions
+          },
+          metadata: {
+            cardId: reconciliationData.metadata?.cardId || cards[0]?._id,
+            consolidationId: reconciliationId,
+            status: reconciliationData.metadata?.status || 'ACTIVE',
+            notes: reconciliationData.notes || reconciliationData.description
+          }
+        });
       
       // Guardar todo en paralelo
       await Promise.all([

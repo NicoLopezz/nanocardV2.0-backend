@@ -49,6 +49,32 @@ const reconciliationSchema = new mongoose.Schema({
   // RESUMEN FINANCIERO TOTAL
   financialSummary: mongoose.Schema.Types.Mixed,
   
+  // NUEVOS CAMPOS EXPANDIDOS DEL FRONTEND
+  summary: {
+    moneyIn: { type: Number, default: 0 },
+    posted: { type: Number, default: 0 },
+    pending: { type: Number, default: 0 },
+    available: { type: Number, default: 0 },
+    totalTransactions: { type: Number, default: 0 },
+    deposits: { type: Number, default: 0 },
+    withdrawals: { type: Number, default: 0 }
+  },
+  
+  // TRANSACCIONES INCLUIDAS EN LA CONSOLIDACIÓN
+  transactions: {
+    count: { type: Number, default: 0 },
+    ids: [{ type: String }],
+    details: [mongoose.Schema.Types.Mixed]
+  },
+  
+  // METADATOS ADICIONALES
+  metadata: {
+    cardId: String,
+    consolidationId: String,
+    status: { type: String, default: 'ACTIVE' },
+    notes: String
+  },
+  
   // METADATOS DEL SNAPSHOT
   snapshotMetadata: {
     totalCards: Number,

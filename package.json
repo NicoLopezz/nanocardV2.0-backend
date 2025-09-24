@@ -14,7 +14,10 @@
     "reset:dev": "npm run cleanup:dev && npm run regenerate:dev",
     "create:admin": "NODE_ENV=development node scripts/create-admin-user.js",
     "cleanup:transactions": "NODE_ENV=development node scripts/cleanup-transactions.js",
-    "recalculate:totals": "NODE_ENV=development node scripts/recalculate-card-totals.js"
+    "recalculate:totals": "NODE_ENV=development node scripts/recalculate-card-totals.js",
+    "reorganize:databases": "node scripts/reorganize-databases.js",
+    "cleanup:old-databases": "node scripts/cleanup-old-databases.js",
+    "create:new-databases": "node scripts/create-new-databases.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

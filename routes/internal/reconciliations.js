@@ -5,7 +5,16 @@ const ReconciliationService = require('../../services/reconciliationService');
 // Crear nueva conciliación
 router.post('/create', async (req, res) => {
   try {
-    const { userId, name, description } = req.body;
+    const { 
+      userId, 
+      name, 
+      description,
+      summary,
+      transactions,
+      metadata,
+      notes
+    } = req.body;
+    
     const createdBy = 'system'; // Simplificado
     
     if (!userId) {
@@ -17,7 +26,14 @@ router.post('/create', async (req, res) => {
     
     const reconciliation = await ReconciliationService.createReconciliation(
       userId, 
-      { name, description }, 
+      { 
+        name, 
+        description,
+        summary,
+        transactions,
+        metadata,
+        notes
+      }, 
       createdBy
     );
     
