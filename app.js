@@ -101,14 +101,23 @@ const PORT = config.PORT;
 
 const startServer = async () => {
   try {
+    console.log('🔄 Starting server initialization...');
+    console.log(`🌍 Environment: ${config.NODE_ENV}`);
+    console.log(`🔗 MongoDB URI: ${config.USERS_DB_URI}`);
+    
     await connectDatabases();
+    console.log('✅ Databases connected successfully');
+    
     app.listen(PORT, () => {
       console.log(`🚀 Nano Backend running on port ${PORT}`);
       console.log(`🌍 Environment: ${config.NODE_ENV}`);
       console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
+      console.log('✅ Server started successfully');
     });
   } catch (error) {
     console.error('❌ Failed to start server:', error);
+    console.error('❌ Error details:', error.message);
+    console.error('❌ Stack trace:', error.stack);
     process.exit(1);
   }
 };

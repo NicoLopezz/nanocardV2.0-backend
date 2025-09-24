@@ -17,7 +17,9 @@
     "recalculate:totals": "NODE_ENV=development node scripts/recalculate-card-totals.js",
     "reorganize:databases": "node scripts/reorganize-databases.js",
     "cleanup:old-databases": "node scripts/cleanup-old-databases.js",
-    "create:new-databases": "node scripts/create-new-databases.js"
+    "create:new-databases": "node scripts/create-new-databases.js",
+    "migrate:dev-to-prod": "node scripts/migrate-dev-to-prod.js",
+    "simple-migrate:dev-to-prod": "node scripts/simple-migrate-dev-to-prod.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
