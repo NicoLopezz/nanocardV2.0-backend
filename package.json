@@ -19,7 +19,18 @@
     "cleanup:old-databases": "node scripts/cleanup-old-databases.js",
     "create:new-databases": "node scripts/create-new-databases.js",
     "migrate:dev-to-prod": "node scripts/migrate-dev-to-prod.js",
-    "simple-migrate:dev-to-prod": "node scripts/simple-migrate-dev-to-prod.js"
+    "simple-migrate:dev-to-prod": "node scripts/simple-migrate-dev-to-prod.js",
+    "analyze:current-data": "node scripts/analyze-current-data.js",
+    "cleanup:specific-user": "node scripts/cleanup-specific-user.js",
+    "migrate:from-old-db": "node scripts/migrate-from-old-db.js",
+    "verify:migration": "node scripts/verify-migration.js",
+    "debug:cards-issue": "node scripts/debug-cards-issue.js",
+    "search:s-saran": "node scripts/search-user-s-saran.js",
+    "migrate:latest-10": "node scripts/migrate-latest-10-users.js",
+    "identify:duplicates": "node scripts/identify-duplicates.js",
+    "clean:all-dev": "node scripts/clean-all-dev-databases.js",
+    "verify:all-migrated": "node scripts/verify-all-migrated-users.js",
+    "migrate:specific-user": "node scripts/migrate-specific-user.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

@@ -654,6 +654,11 @@ router.get('/card/:cardId/transactions', async (req, res) => {
             $sum: {
               $cond: [{ $eq: ['$operation', 'TRANSACTION_APPROVED'] }, '$amount', 0]
             }
+          },
+          totalPending: {
+            $sum: {
+              $cond: [{ $eq: ['$operation', 'TRANSACTION_PENDING'] }, '$amount', 0]
+            }
           }
         }
       }
@@ -663,7 +668,8 @@ router.get('/card/:cardId/transactions', async (req, res) => {
       totalTransactions: 0,
       totalDeposited: 0,
       totalRefunded: 0,
-      totalPosted: 0
+      totalPosted: 0,
+      totalPending: 0
     };
 
     res.json({
@@ -676,7 +682,7 @@ router.get('/card/:cardId/transactions', async (req, res) => {
       },
       stats: {
         ...stats,
-        totalAvailable: stats.totalDeposited + stats.totalRefunded - stats.totalPosted
+        totalAvailable: stats.totalDeposited + stats.totalRefunded - stats.totalPosted - stats.totalPending
       },
       transactions: transactions,
       pagination: {

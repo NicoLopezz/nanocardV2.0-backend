@@ -80,7 +80,7 @@ router.get('/admin/all', authenticateToken, async (req, res) => {
     });
 
     // Obtener todos los usuarios de una vez (optimización)
-    const userIds = [...new Set(cards.map(card => card.userId))];
+    const userIds = [...new Set(cards.map(card => card.userId ? card.userId.toString() : null).filter(Boolean))];
     const users = await User.find(
       { _id: { $in: userIds } },
       { _id: 1, username: 1, profile: 1 }
@@ -94,7 +94,8 @@ router.get('/admin/all', authenticateToken, async (req, res) => {
     
     // Enriquecer tarjetas con información del usuario (sin consultas individuales)
     const enrichedCards = cards.map(card => {
-      const user = userMap.get(card.userId.toString());
+      const userIdString = card.userId ? card.userId.toString() : null;
+      const user = userIdString ? userMap.get(userIdString) : null;
       return {
         _id: card._id,
         name: card.name,
@@ -654,6 +655,11 @@ router.get('/card/:cardId/transactions', async (req, res) => {
             $sum: {
               $cond: [{ $eq: ['$operation', 'TRANSACTION_APPROVED'] }, '$amount', 0]
             }
+          },
+          totalPending: {
+            $sum: {
+              $cond: [{ $eq: ['$operation', 'TRANSACTION_PENDING'] }, '$amount', 0]
+            }
           }
         }
       }
@@ -663,7 +669,8 @@ router.get('/card/:cardId/transactions', async (req, res) => {
       totalTransactions: 0,
       totalDeposited: 0,
       totalRefunded: 0,
-      totalPosted: 0
+      totalPosted: 0,
+      totalPending: 0
     };
 
     res.json({
@@ -676,7 +683,7 @@ router.get('/card/:cardId/transactions', async (req, res) => {
       },
       stats: {
         ...stats,
-        totalAvailable: stats.totalDeposited + stats.totalRefunded - stats.totalPosted
+        totalAvailable: stats.totalDeposited + stats.totalRefunded - stats.totalPosted - stats.totalPending
       },
       transactions: transactions,
       pagination: {

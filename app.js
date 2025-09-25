@@ -36,7 +36,25 @@ app.use(timingMiddleware);
 
 // Middleware de seguridad
 app.use(helmet());
-app.use(cors());
+
+// Configuración CORS para permitir ngrok y desarrollo
+const corsOptions = {
+  origin: [
+    'http://localhost:3000',
+    'http://localhost:3001', 
+    'https://db274cdf56ad.ngrok-free.app',
+    'https://5036d6c8de2c.ngrok-free.app',
+    'https://c4d5c7832130.ngrok-free.app',
+    'https://611bf1db9a8b.ngrok-free.app',
+    /^https:\/\/.*\.ngrok-free\.app$/,
+    /^https:\/\/.*\.ngrok\.io$/,
+    /^https:\/\/.*\.ngrok\.app$/
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+};
+app.use(cors(corsOptions));
 
 // Rate limiting
 const limiter = rateLimit({

@@ -48,7 +48,8 @@ const transactionSchema = new mongoose.Schema({
       'TRANSACTION_REFUND',
       'WALLET_DEPOSIT',
       'OVERRIDE_VIRTUAL_BALANCE',
-      'WITHDRAWAL'  // Nueva operación para retiros
+      'WITHDRAWAL',
+      'TRANSACTION_PENDING'  // Nueva operación para transacciones pendientes
     ],
     required: true
   },

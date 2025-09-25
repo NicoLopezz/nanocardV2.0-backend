@@ -24,6 +24,7 @@ const recalculateCardStats = async (cardId) => {
         TRANSACTION_REJECTED: 0,
         TRANSACTION_REVERSED: 0,
         TRANSACTION_REFUND: 0,
+        TRANSACTION_PENDING: 0,
         WALLET_DEPOSIT: 0,
         OVERRIDE_VIRTUAL_BALANCE: 0
       },
@@ -32,6 +33,7 @@ const recalculateCardStats = async (cardId) => {
         TRANSACTION_REJECTED: 0,
         TRANSACTION_REVERSED: 0,
         TRANSACTION_REFUND: 0,
+        TRANSACTION_PENDING: 0,
         WALLET_DEPOSIT: 0,
         OVERRIDE_VIRTUAL_BALANCE: 0
       }
@@ -41,6 +43,7 @@ const recalculateCardStats = async (cardId) => {
     let totalDeposited = 0;   // Solo WALLET_DEPOSIT
     let totalRefunded = 0;    // Solo TRANSACTION_REFUND
     let totalPosted = 0;      // Solo TRANSACTION_APPROVED
+    let totalPending = 0;     // Solo TRANSACTION_PENDING
     
     for (const transaction of transactions) {
       const operation = transaction.operation || 'UNKNOWN';
@@ -58,6 +61,8 @@ const recalculateCardStats = async (cardId) => {
         totalRefunded += transaction.amount;
       } else if (operation === 'TRANSACTION_APPROVED') {
         totalPosted += transaction.amount;
+      } else if (operation === 'TRANSACTION_PENDING') {
+        totalPending += transaction.amount;
       }
       // Otras operaciones no afectan los balances principales
     }
@@ -66,8 +71,8 @@ const recalculateCardStats = async (cardId) => {
     card.deposited = totalDeposited;
     card.refunded = totalRefunded;
     card.posted = totalPosted;
-    card.pending = 0; // Por ahora 0
-    card.available = totalDeposited + totalRefunded - totalPosted;
+    card.pending = totalPending;
+    card.available = totalDeposited - totalPosted - totalPending;
     
     card.transactionStats = {
       ...stats,
@@ -81,6 +86,7 @@ const recalculateCardStats = async (cardId) => {
     console.log(`   - Deposited: $${totalDeposited}`);
     console.log(`   - Refunded: $${totalRefunded}`);
     console.log(`   - Posted: $${totalPosted}`);
+    console.log(`   - Pending: $${totalPending}`);
     console.log(`   - Available: $${card.available}`);
     console.log(`   - By operation:`, stats.byOperation);
     
@@ -92,6 +98,7 @@ const recalculateCardStats = async (cardId) => {
         deposited: card.deposited,
         refunded: card.refunded,
         posted: card.posted,
+        pending: card.pending,
         available: card.available,
         transactionStats: card.transactionStats
       }
