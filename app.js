@@ -37,11 +37,13 @@ app.use(timingMiddleware);
 // Middleware de seguridad
 app.use(helmet());
 
-// Configuración CORS para permitir ngrok y desarrollo
+// Configuración CORS para permitir ngrok, desarrollo y producción
 const corsOptions = {
   origin: [
     'http://localhost:3000',
     'http://localhost:3001', 
+    'https://nanocardv2-0.onrender.com',
+    'https://nanocard.xyz',
     'https://db274cdf56ad.ngrok-free.app',
     'https://5036d6c8de2c.ngrok-free.app',
     'https://c4d5c7832130.ngrok-free.app',
