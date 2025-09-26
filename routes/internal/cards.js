@@ -61,6 +61,7 @@ router.get('/admin/all', authenticateToken, async (req, res) => {
 
     const Card = getCardModel();
     const User = getUserModel();
+    const Transaction = getTransactionModel();
 
     // Obtener todas las tarjetas con campos específicos
     const cards = await Card.find({}, {
@@ -92,10 +93,93 @@ router.get('/admin/all', authenticateToken, async (req, res) => {
       userMap.set(user._id.toString(), user);
     });
     
-    // Enriquecer tarjetas con información del usuario (sin consultas individuales)
+    // Obtener las últimas 4 transacciones para cada tarjeta (ordenadas por fecha REAL de la transacción)
+    const cardIds = cards.map(card => card._id.toString());
+    
+    // Crear una fecha de referencia para convertir las fechas string a Date objects
+    const parseTransactionDate = (dateStr, timeStr) => {
+      try {
+        const [day, month, year] = (dateStr || '').split('/');
+        const [timePart, rawPeriod] = (timeStr || '').split(' ');
+        let [hours, minutes] = (timePart || '00:00').split(':');
+        const period = (rawPeriod || '').toLowerCase();
+        hours = parseInt(hours);
+        minutes = parseInt(minutes);
+        if ((period === 'p. m.' || period === 'pm' || period === 'p.m.' || period === 'p') && hours !== 12) hours += 12;
+        if ((period === 'a. m.' || period === 'am' || period === 'a.m.' || period === 'a') && hours === 12) hours = 0;
+        return new Date(parseInt(year), parseInt(month) - 1, parseInt(day), hours, minutes);
+      } catch {
+        return new Date();
+      }
+    };
+    
+    // Usar conexión directa en lugar del modelo para asegurar que use la DB correcta
+    const { databases } = require('../../config/database');
+    const transactionsDb = databases.transactions.connection.useDb('dev_transactions');
+    
+    const allTransactions = await transactionsDb.collection('transactions').find({ 
+      cardId: { $in: cardIds },
+      isDeleted: { $ne: true },
+      status: { $ne: 'DELETED' }
+    })
+    .project({
+      _id: 1,
+      cardId: 1,
+      name: 1,
+      amount: 1,
+      date: 1,
+      time: 1,
+      status: 1,
+      operation: 1,
+      createdAt: 1
+    })
+    .toArray();
+    
+    // Crear mapa de transacciones agrupadas por cardId y ordenadas por fecha REAL
+    const transactionsByCard = new Map();
+    
+    // Primero, agregar todas las transacciones al mapa
+    allTransactions.forEach(transaction => {
+      const cardId = transaction.cardId;
+      if (!transactionsByCard.has(cardId)) {
+        transactionsByCard.set(cardId, []);
+      }
+      transactionsByCard.get(cardId).push(transaction);
+    });
+    
+    // Luego, ordenar cada grupo por fecha real (más reciente primero) y tomar solo las últimas 4
+    transactionsByCard.forEach((transactions, cardId) => {
+      const sortedTransactions = transactions
+        .map(tx => ({
+          ...tx,
+          realDate: parseTransactionDate(tx.date, tx.time)
+        }))
+        .sort((a, b) => b.realDate - a.realDate)
+        .slice(0, 4);
+
+      const cleanTransactions = sortedTransactions.map(tx => {
+        return {
+          _id: tx._id,
+          name: tx.name,
+          amount: typeof tx.amount === 'number' ? tx.amount : parseFloat(tx.amount) || 0,
+          date: tx.date,
+          time: tx.time,
+          status: tx.status,
+          operation: tx.operation,
+          createdAt: tx.createdAt
+        };
+      }).filter(tx => tx && tx._id && tx.name !== undefined);
+
+      transactionsByCard.set(cardId, cleanTransactions);
+    });
+    
+    // Enriquecer tarjetas con información del usuario y transacciones
     const enrichedCards = cards.map(card => {
       const userIdString = card.userId ? card.userId.toString() : null;
       const user = userIdString ? userMap.get(userIdString) : null;
+      const lastTransactions = transactionsByCard.get(card._id.toString()) || [];
+      
+      
       return {
         _id: card._id,
         name: card.name,
@@ -110,7 +194,8 @@ router.get('/admin/all', authenticateToken, async (req, res) => {
         supplier: card.supplier || 'Nano',
         limits: card.limits,
         createdAt: card.createdAt,
-        updatedAt: card.updatedAt
+        updatedAt: card.updatedAt,
+        transactions: lastTransactions // NUEVO: Agregar los últimos 4 movimientos
       };
     });
 
@@ -309,6 +394,65 @@ router.get('/card/:cardId', authenticateToken, async (req, res) => {
   }
 });
 
+// NUEVO ENDPOINT: Obtener stats de una tarjeta específica (solo para administradores)
+router.get('/admin/:cardId/stats', authenticateToken, async (req, res) => {
+  const startTime = Date.now();
+  
+  try {
+    // Verificar que el usuario sea admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'Access denied. Admin role required.' 
+      });
+    }
+
+    const { cardId } = req.params;
+    const Card = getCardModel();
+    const Transaction = getTransactionModel();
+
+    // Verificar que la tarjeta existe
+    const card = await Card.findById(cardId);
+    if (!card) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Card not found' 
+      });
+    }
+
+    // Recalcular stats de la tarjeta usando el servicio
+    const cardStatsService = require('../../services/cardStatsService');
+    const recalculatedStats = await cardStatsService.recalculateCardStats(cardId);
+
+    const responseTime = Date.now() - startTime;
+    console.log(`✅ Card stats for ${cardId} fetched in ${responseTime}ms`);
+
+    res.json({
+      success: true,
+      card: {
+        _id: card._id,
+        name: card.name,
+        supplier: card.supplier,
+        last4: card.last4,
+        deposited: recalculatedStats.card.deposited,
+        posted: recalculatedStats.card.posted,
+        available: recalculatedStats.card.available,
+        status: card.status
+      },
+      responseTime: responseTime
+    });
+
+  } catch (error) {
+    const responseTime = Date.now() - startTime;
+    console.error(`❌ Error fetching card stats (${responseTime}ms):`, error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message, 
+      responseTime: responseTime 
+    });
+  }
+});
+
 // Endpoint para actualizar una tarjeta específica
 router.put('/card/:cardId', authenticateToken, async (req, res) => {
   try {
@@ -389,7 +533,8 @@ router.put('/card/:cardId/transactions/:transactionId', authenticateToken, async
     const existingTransaction = await Transaction.findOne({ 
       _id: transactionId, 
       cardId: cardId,
-      isDeleted: { $ne: true }
+      isDeleted: { $ne: true },
+      status: { $ne: 'DELETED' }
     });
     
     if (!existingTransaction) {
@@ -471,14 +616,24 @@ router.put('/card/:cardId/transactions/:transactionId', authenticateToken, async
       // No fallar la operación por error de historial
     }
 
+    // Recalcular stats de la tarjeta después de la actualización
+    const cardStatsService = require('../../services/cardStatsService');
+    const recalculatedStats = await cardStatsService.recalculateCardStats(cardId);
+
     // Invalidar caché relacionado
     const lastMovementsCacheKey = `last_movements_${cardId}`;
     cacheService.invalidate(lastMovementsCacheKey);
+    cacheService.invalidate(cacheService.KEYS.ADMIN_ALL_CARDS);
 
     res.json({
       success: true,
       message: 'Transaction updated successfully',
       transaction: updatedTransaction,
+      updatedCardStats: {
+        deposited: recalculatedStats.card.deposited,
+        posted: recalculatedStats.card.posted,
+        available: recalculatedStats.card.available
+      },
       responseTime: responseTime
     });
 
@@ -547,6 +702,7 @@ router.delete('/card/:cardId/transactions/:transactionId', authenticateToken, as
       { 
         $set: { 
           status: 'DELETED',
+          isDeleted: true,
           comentario: `Deleted at ${deletedAtFormatted}`,
           deletedAt: deletedAt,
           updatedAt: deletedAt,
@@ -586,14 +742,24 @@ router.delete('/card/:cardId/transactions/:transactionId', authenticateToken, as
       // No fallar la operación por error de historial
     }
 
+    // Recalcular stats de la tarjeta después de la eliminación
+    const cardStatsService = require('../../services/cardStatsService');
+    const recalculatedStats = await cardStatsService.recalculateCardStats(cardId);
+
     // Invalidar caché relacionado
     const lastMovementsCacheKey = `last_movements_${cardId}`;
     cacheService.invalidate(lastMovementsCacheKey);
+    cacheService.invalidate(cacheService.KEYS.ADMIN_ALL_CARDS);
 
     res.json({
       success: true,
       message: 'Transaction deleted successfully',
       transaction: deletedTransaction,
+      updatedCardStats: {
+        deposited: recalculatedStats.card.deposited,
+        posted: recalculatedStats.card.posted,
+        available: recalculatedStats.card.available
+      },
       responseTime: responseTime
     });
 
@@ -604,11 +770,34 @@ router.delete('/card/:cardId/transactions/:transactionId', authenticateToken, as
   }
 });
 
-// Endpoint para obtener transacciones de una tarjeta específica
+// Endpoint para obtener transacciones de una tarjeta específica - OPTIMIZADO CON CACHÉ
 router.get('/card/:cardId/transactions', async (req, res) => {
+  const startTime = Date.now();
+  
   try {
     const { cardId } = req.params;
-    const { page = 1, limit = 50, sortBy = 'date', sortOrder = 'desc' } = req.query;
+    const { page = 1, limit = 50, sortBy = 'date', sortOrder = 'desc', action } = req.query;
+    
+    // Determinar si incluir transacciones eliminadas basado en el parámetro action
+    const includeDeleted = action === 'all-movements';
+    
+    console.log(`🔍 Debug - cardId: ${cardId}, action: ${action}, includeDeleted: ${includeDeleted}`);
+    
+    // Ajustar la clave de caché para incluir el parámetro action
+    const cacheKey = `transactions_${cardId}_${page}_${limit}_${sortBy}_${sortOrder}_${includeDeleted ? 'all' : 'active'}`;
+    const cachedData = cacheService.get(cacheKey);
+    
+    if (cachedData && !includeDeleted) { // Solo usar caché para transacciones activas para evitar mostrar data antigua
+      const responseTime = Date.now() - startTime;
+      console.log(`✅ Card transactions served from cache in ${responseTime}ms`);
+      
+      return res.json({
+        ...cachedData,
+        cached: true,
+        cacheTimestamp: cachedData.timestamp,
+        responseTime: responseTime
+      });
+    }
     
     const Card = getCardModel();
     const Transaction = getTransactionModel();
@@ -626,17 +815,24 @@ router.get('/card/:cardId/transactions', async (req, res) => {
     const sortObj = {};
     sortObj[sortBy] = sortOrder === 'desc' ? -1 : 1;
 
-    // Obtener transacciones activas de la tarjeta
-    const transactions = await Transaction.find({ cardId: cardId, isDeleted: { $ne: true } })
+    // Configurar filtros de transacciones basado en action
+    let transactionFilter = { cardId: cardId };
+    if (!includeDeleted) {
+      transactionFilter.isDeleted = { $ne: true };
+      transactionFilter.status = { $ne: 'DELETED' };
+    }
+
+    // Obtener transacciones según el filtro
+    const transactions = await Transaction.find(transactionFilter)
       .sort(sortObj)
       .skip(skip)
       .limit(parseInt(limit));
 
-    const totalTransactions = await Transaction.countDocuments({ cardId: cardId, isDeleted: { $ne: true } });
+    const totalTransactions = await Transaction.countDocuments(transactionFilter);
 
-    // Calcular estadísticas de la tarjeta
+    // Calcular estadísticas de la tarjeta (optimizado)
     const cardStats = await Transaction.aggregate([
-      { $match: { cardId: cardId, isDeleted: { $ne: true } } },
+      { $match: { cardId: cardId, isDeleted: { $ne: true }, status: { $ne: 'DELETED' } } },
       {
         $group: {
           _id: null,
@@ -673,7 +869,7 @@ router.get('/card/:cardId/transactions', async (req, res) => {
       totalPending: 0
     };
 
-    res.json({
+    const responseData = {
       success: true,
       card: {
         _id: card._id,
@@ -685,17 +881,52 @@ router.get('/card/:cardId/transactions', async (req, res) => {
         ...stats,
         totalAvailable: stats.totalDeposited + stats.totalRefunded - stats.totalPosted - stats.totalPending
       },
-      transactions: transactions,
+      transactions: transactions.map(tx => ({
+        ...tx.toObject(),
+        isDeleted: tx.isDeleted || tx.status === 'DELETED'
+      })),
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
         total: totalTransactions,
         pages: Math.ceil(totalTransactions / parseInt(limit))
       }
+    };
+
+    // Si incluye eliminadas, agregar información adicional
+    if (includeDeleted) {
+      const deletedCount = await Transaction.countDocuments({ 
+        cardId: cardId, 
+        $or: [
+          { isDeleted: true },
+          { status: 'DELETED' }
+        ]
+      });
+      
+      responseData.stats.totalDeletedTransactions = deletedCount;
+      responseData.stats.totalAllTransactions = totalTransactions;
+    }
+
+    // Guardar en caché solo para transacciones activas
+    if (!includeDeleted) {
+      const cacheData = {
+        ...responseData,
+        timestamp: new Date().toISOString()
+      };
+      cacheService.set(cacheKey, cacheData, 300); // 5 minutos de TTL
+    }
+
+    const responseTime = Date.now() - startTime;
+    console.log(`✅ Card transactions fetched from database in ${responseTime}ms`);
+
+    res.json({
+      ...responseData,
+      responseTime: responseTime
     });
   } catch (error) {
-    console.error('❌ Error fetching card transactions:', error);
-    res.status(500).json({ success: false, error: error.message });
+    const responseTime = Date.now() - startTime;
+    console.error(`❌ Error fetching card transactions (${responseTime}ms):`, error);
+    res.status(500).json({ success: false, error: error.message, responseTime: responseTime });
   }
 });
 
@@ -717,7 +948,7 @@ router.get('/admin/stats', authenticateToken, async (req, res) => {
     // Obtener estadísticas básicas
     const totalUsers = await User.countDocuments({});
     const totalCards = await Card.countDocuments({});
-    const totalTransactions = await Transaction.countDocuments({ isDeleted: { $ne: true } });
+    const totalTransactions = await Transaction.countDocuments({ isDeleted: { $ne: true }, status: { $ne: 'DELETED' } });
 
     // Obtener estadísticas de tarjetas por estado
     const activeCards = await Card.countDocuments({ status: 'ACTIVE' });
@@ -811,7 +1042,8 @@ router.get('/card/:cardId/last-movements', authenticateToken, async (req, res) =
     // Obtener los últimos 4 movimientos activos de la tarjeta
     const lastMovements = await Transaction.find({ 
       cardId: cardId, 
-      isDeleted: { $ne: true } 
+      isDeleted: { $ne: true },
+      status: { $ne: 'DELETED' }
     })
     .sort({ createdAt: -1 }) // Ordenar por fecha de creación descendente
     .limit(4)
@@ -1103,28 +1335,46 @@ router.post('/card/:cardId/transactions', authenticateToken, async (req, res) =>
 
     // Log en historial centralizado
     try {
-      await historyService.logCRUDOperation('TRANSACTION_CREATED', 'Transaction', transaction._id, req.user, [], {
-        transactionAmount: transaction.amount,
-        transactionOperation: transaction.operation,
-        cardLast4: card.last4
-      }, {
-        method: 'POST',
-        endpoint: `/api/cards/card/${cardId}/transactions`,
-        statusCode: 201,
-        responseTime: responseTime
-      });
+      await historyService.logCRUDOperation(
+        'TRANSACTION_CREATED', 
+        'Transaction', 
+        transaction._id, 
+        req.user, 
+        [], 
+        {
+          transactionAmount: transaction.amount,
+          transactionOperation: transaction.operation,
+          cardLast4: card.last4
+        }, 
+        {
+          method: 'POST',
+          endpoint: `/api/cards/card/${cardId}/transactions`,
+          statusCode: 201,
+          responseTime: responseTime
+        }
+      );
     } catch (historyError) {
       console.error('❌ Error logging transaction creation to history:', historyError);
     }
 
+    // Recalcular stats de la tarjeta después de la creación
+    const cardStatsService = require('../../services/cardStatsService');
+    const recalculatedStats = await cardStatsService.recalculateCardStats(cardId);
+
     // Invalidar caché relacionado
     const lastMovementsCacheKey = `last_movements_${cardId}`;
     cacheService.invalidate(lastMovementsCacheKey);
+    cacheService.invalidate(cacheService.KEYS.ADMIN_ALL_CARDS);
 
     res.status(201).json({
       success: true,
       message: 'Transaction created successfully',
       transaction: transaction,
+      updatedCardStats: {
+        deposited: recalculatedStats.card.deposited,
+        posted: recalculatedStats.card.posted,
+        available: recalculatedStats.card.available
+      },
       responseTime: responseTime
     });
 
@@ -1132,6 +1382,298 @@ router.post('/card/:cardId/transactions', authenticateToken, async (req, res) =>
     const responseTime = Date.now() - startTime;
     console.error(`❌ Error creating transaction (${responseTime}ms):`, error);
     res.status(500).json({ success: false, error: error.message, responseTime: responseTime });
+  }
+});
+
+// Endpoint para admin dashboard - manejar query params como card y action
+router.get('/admin/cards', authenticateToken, async (req, res) => {
+  const startTime = Date.now();
+  
+  try {
+    const { card: cardId, action, page = 1, limit = 1000 } = req.query;
+    
+    // Verificar que el usuario sea admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'Access denied. Admin role required.' 
+      });
+    }
+
+    // Si no hay cardId, devolver error
+    if (!cardId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Card ID is required as query parameter'
+      });
+    }
+
+    const Card = getCardModel();
+    const Transaction = getTransactionModel();
+
+    // Verificar que la tarjeta existe
+    const card = await Card.findById(cardId);
+    if (!card) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Card not found' 
+      });
+    }
+
+    // Configurar paginación
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    let transactionQuery = { cardId: cardId };
+    let includeDeleted = false;
+
+    // Si action=all-movements, incluir transacciones eliminadas
+    if (action === 'all-movements') {
+      includeDeleted = true;
+      // No filtrar por isDeleted ni status para mostrar TODAS
+    } else {
+      // Comportamiento normal: solo activas
+      transactionQuery.isDeleted = { $ne: true };
+      transactionQuery.status = { $ne: 'DELETED' };
+    }
+
+    // Obtener transacciones según el filtro
+    const transactions = await Transaction.find(transactionQuery)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const totalTransactions = await Transaction.countDocuments(transactionQuery);
+
+    // Calcular estadísticas SIEMPRE con transacciones activas (sin eliminadas)
+    const cardStats = await Transaction.aggregate([
+      { $match: { cardId: cardId, isDeleted: { $ne: true }, status: { $ne: 'DELETED' } } },
+      {
+        $group: {
+          _id: null,
+          totalTransactions: { $sum: 1 },
+          totalDeposited: {
+            $sum: {
+              $cond: [{ $eq: ['$operation', 'WALLET_DEPOSIT'] }, '$amount', 0]
+            }
+          },
+          totalRefunded: {
+            $sum: {
+              $cond: [{ $eq: ['$operation', 'TRANSACTION_REFUND'] }, '$amount', 0]
+            }
+          },
+          totalPosted: {
+            $sum: {
+              $cond: [{ $eq: ['$operation', 'TRANSACTION_APPROVED'] }, '$amount', 0]
+            }
+          },
+          totalPending: {
+            $sum: {
+              $cond: [{ $eq: ['$operation', 'TRANSACTION_PENDING'] }, '$amount', 0]
+            }
+          }
+        }
+      }
+    ]);
+
+    const stats = cardStats[0] || {
+      totalTransactions: 0,
+      totalDeposited: 0,
+      totalRefunded: 0,
+      totalPosted: 0,
+      totalPending: 0
+    };
+
+    const responseTime = Date.now() - startTime;
+    console.log(`✅ Admin cards ${includeDeleted ? 'with deleted' : 'active only'} for card ${cardId} fetched in ${responseTime}ms`);
+
+    // Preparar la respuesta con el formato esperado por el frontend
+    const response = {
+      success: true,
+      card: {
+        _id: card._id,
+        name: card.name,
+        last4: card.last4,
+        status: card.status
+      },
+      stats: {
+        ...stats,
+        totalAvailable: stats.totalDeposited + stats.totalRefunded - stats.totalPosted - stats.totalPending
+      },
+      transactions: transactions.map(tx => ({
+        ...tx.toObject(),
+        isDeleted: tx.isDeleted || tx.status === 'DELETED'
+      })),
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: totalTransactions,
+        pages: Math.ceil(totalTransactions / parseInt(limit))
+      }
+    };
+
+    // Si incluye eliminadas, agregar info adicional
+    if (includeDeleted) {
+      const deletedCount = await Transaction.countDocuments({ 
+        cardId: cardId, 
+        $or: [
+          { isDeleted: true },
+          { status: 'DELETED' }
+        ]
+      });
+      
+      response.stats.totalDeletedTransactions = deletedCount;
+      response.stats.totalAllTransactions = totalTransactions;
+    }
+
+    // Usar formato de respuesta con caché simulado
+    res.json({
+      ...response,
+      timestamp: new Date().toISOString(),
+      cached: false,
+      cacheTimestamp: new Date().toISOString(),
+      responseTime: responseTime
+    });
+
+  } catch (error) {
+    const responseTime = Date.now() - startTime;
+    console.error(`❌ Error in admin cards endpoint (${responseTime}ms):`, error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message, 
+      responseTime: responseTime 
+    });
+  }
+});
+
+// Endpoint para admin dashboard - obtener TODAS las transacciones (incluyendo eliminadas) para auditoría
+router.get('/admin/card/:cardId/all-movements', authenticateToken, async (req, res) => {
+  const startTime = Date.now();
+  
+  try {
+    const { cardId } = req.params;
+    const { page = 1, limit = 50, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
+    
+    // Verificar que el usuario sea admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'Access denied. Admin role required.' 
+      });
+    }
+
+    const Card = getCardModel();
+    const Transaction = getTransactionModel();
+
+    // Verificar que la tarjeta existe
+    const card = await Card.findById(cardId);
+    if (!card) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Card not found' 
+      });
+    }
+
+    // Configurar paginación
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    // Configurar ordenamiento
+    const sortObj = {};
+    sortObj[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+    // Obtener TODAS las transacciones (incluyendo eliminadas) para el dashboard admin
+    const allTransactions = await Transaction.find({ cardId: cardId })
+      .sort(sortObj)
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const totalAllTransactions = await Transaction.countDocuments({ cardId: cardId });
+
+    // Calcular estadísticas SOLO con transacciones activas (sin eliminadas)
+    const cardStats = await Transaction.aggregate([
+      { $match: { cardId: cardId, isDeleted: { $ne: true }, status: { $ne: 'DELETED' } } },
+      {
+        $group: {
+          _id: null,
+          totalActiveTransactions: { $sum: 1 },
+          totalDeposited: {
+            $sum: {
+              $cond: [{ $eq: ['$operation', 'WALLET_DEPOSIT'] }, '$amount', 0]
+            }
+          },
+          totalRefunded: {
+            $sum: {
+              $cond: [{ $eq: ['$operation', 'TRANSACTION_REFUND'] }, '$amount', 0]
+            }
+          },
+          totalPosted: {
+            $sum: {
+              $cond: [{ $eq: ['$operation', 'TRANSACTION_APPROVED'] }, '$amount', 0]
+            }
+          },
+          totalPending: {
+            $sum: {
+              $cond: [{ $eq: ['$operation', 'TRANSACTION_PENDING'] }, '$amount', 0]
+            }
+          }
+        }
+      }
+    ]);
+
+    // Obtener conteo de transacciones eliminadas para información adicional
+    const deletedCount = await Transaction.countDocuments({ 
+      cardId: cardId, 
+      $or: [
+        { isDeleted: true },
+        { status: 'DELETED' }
+      ]
+    });
+
+    const stats = cardStats[0] || {
+      totalActiveTransactions: 0,
+      totalDeposited: 0,
+      totalRefunded: 0,
+      totalPosted: 0,
+      totalPending: 0
+    };
+
+    const responseTime = Date.now() - startTime;
+    console.log(`✅ Admin all movements for card ${cardId} fetched in ${responseTime}ms`);
+
+    res.json({
+      success: true,
+      card: {
+        _id: card._id,
+        name: card.name,
+        last4: card.last4,
+        status: card.status
+      },
+      stats: {
+        ...stats,
+        totalAvailable: stats.totalDeposited + stats.totalRefunded - stats.totalPosted - stats.totalPending,
+        totalDeletedTransactions: deletedCount,
+        totalAllTransactions: totalAllTransactions
+      },
+      transactions: allTransactions.map(tx => ({
+        ...tx.toObject(),
+        isDeleted: tx.isDeleted || tx.status === 'DELETED'
+      })),
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: totalAllTransactions,
+        pages: Math.ceil(totalAllTransactions / parseInt(limit))
+      },
+      responseTime: responseTime
+    });
+
+  } catch (error) {
+    const responseTime = Date.now() - startTime;
+    console.error(`❌ Error fetching admin all movements (${responseTime}ms):`, error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message, 
+      responseTime: responseTime 
+    });
   }
 });
 

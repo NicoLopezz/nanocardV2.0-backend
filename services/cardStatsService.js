@@ -14,7 +14,7 @@ const recalculateCardStats = async (cardId) => {
     }
     
     // Obtener todas las transacciones activas de la tarjeta (no eliminadas)
-    const transactions = await Transaction.find({ cardId: cardId, isDeleted: { $ne: true } });
+    const transactions = await Transaction.find({ cardId: cardId, isDeleted: { $ne: true }, status: { $ne: 'DELETED' } });
     
     // Inicializar contadores
     const stats = {
@@ -122,7 +122,7 @@ const getCardStats = async (cardId) => {
     }
     
     // Obtener transacciones recientes (solo activas)
-    const recentTransactions = await Transaction.find({ cardId: cardId, isDeleted: { $ne: true } })
+    const recentTransactions = await Transaction.find({ cardId: cardId, isDeleted: { $ne: true }, status: { $ne: 'DELETED' } })
       .sort({ createdAt: -1 })
       .limit(10);
     

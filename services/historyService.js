@@ -68,7 +68,17 @@ const historyService = {
   },
 
   // Log de operaciones CRUD
-  logCRUDOperation: async (eventType, entityType, entityId, user, changes, requestInfo) => {
+  logCRUDOperation: async (eventType, entityType, entityId, user, changes, metadata = {}, requestInfo) => {
+    // Mapear eventType a action válido
+    const getActionFromEventType = (eventType) => {
+      if (eventType.includes('CREATED')) return 'created';
+      if (eventType.includes('UPDATED')) return 'updated';
+      if (eventType.includes('DELETED')) return 'deleted';
+      if (eventType.includes('RESTORED')) return 'restored';
+      if (eventType.includes('LOGIN')) return 'authenticated';
+      return 'viewed';
+    };
+    
     return await historyService.createEvent({
       eventType: eventType,
       entityType: entityType,
@@ -77,11 +87,12 @@ const historyService = {
       userRole: user.role,
       userEmail: user.email,
       userName: user.username,
-      action: eventType.toLowerCase().replace('_', ''),
+      action: getActionFromEventType(eventType),
       category: 'data_operation',
       severity: 'low',
       description: `${entityType} ${eventType.toLowerCase().replace('_', ' ')} by ${user.username}`,
       changes: changes,
+      metadata: metadata,
       requestInfo: requestInfo
     });
   },
