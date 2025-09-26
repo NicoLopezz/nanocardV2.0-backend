@@ -394,7 +394,7 @@ router.get('/card/:cardId', authenticateToken, async (req, res) => {
   }
 });
 
-// NUEVO ENDPOINT: Obtener stats de una tarjeta específica (solo para administradores)
+// NUEVO ENDPOINT: Obtener stats de una tarjeta específica con últimos movimientos (solo para administradores)
 router.get('/admin/:cardId/stats', authenticateToken, async (req, res) => {
   const startTime = Date.now();
   
@@ -424,27 +424,57 @@ router.get('/admin/:cardId/stats', authenticateToken, async (req, res) => {
     const cardStatsService = require('../../services/cardStatsService');
     const recalculatedStats = await cardStatsService.recalculateCardStats(cardId);
 
+    // Obtener los últimos 4 movimientos activos de la tarjeta
+    const lastMovements = await Transaction.find({ 
+      cardId: cardId, 
+      isDeleted: { $ne: true },
+      status: { $ne: 'DELETED' }
+    })
+    .sort({ createdAt: -1 }) // Ordenar por fecha de creación descendente
+    .limit(4)
+    .select({
+      _id: 1,
+      name: 1,
+      amount: 1,
+      date: 1,
+      time: 1,
+      status: 1,
+      operation: 1,
+      createdAt: 1
+    });
+
+    // Formatear movimientos manteniendo el formato original completo
+    const formattedMovements = lastMovements.map(movement => ({
+      _id: movement._id,
+      name: movement.name,
+      amount: movement.amount,
+      date: movement.date,
+      time: movement.time,
+      status: movement.status,
+      operation: movement.operation,
+      createdAt: movement.createdAt
+    }));
+
     const responseTime = Date.now() - startTime;
-    console.log(`✅ Card stats for ${cardId} fetched in ${responseTime}ms`);
+    console.log(`✅ Card stats and movements for ${cardId} fetched in ${responseTime}ms`);
 
     res.json({
       success: true,
       card: {
         _id: card._id,
         name: card.name,
-        supplier: card.supplier,
-        last4: card.last4,
         deposited: recalculatedStats.card.deposited,
         posted: recalculatedStats.card.posted,
         available: recalculatedStats.card.available,
         status: card.status
       },
+      lastMovements: formattedMovements,
       responseTime: responseTime
     });
 
   } catch (error) {
     const responseTime = Date.now() - startTime;
-    console.error(`❌ Error fetching card stats (${responseTime}ms):`, error);
+    console.error(`❌ Error fetching card stats and movements (${responseTime}ms):`, error);
     res.status(500).json({ 
       success: false, 
       error: error.message, 
