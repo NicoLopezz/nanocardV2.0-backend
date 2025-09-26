@@ -388,7 +388,8 @@ router.put('/card/:cardId/transactions/:transactionId', authenticateToken, async
     const existingTransaction = await Transaction.findOne({ 
       _id: transactionId, 
       cardId: cardId,
-      isDeleted: { $ne: true }
+      isDeleted: { $ne: true },
+      status: { $ne: 'DELETED' }
     });
     
     if (!existingTransaction) {
@@ -546,6 +547,7 @@ router.delete('/card/:cardId/transactions/:transactionId', authenticateToken, as
       { 
         $set: { 
           status: 'DELETED',
+          isDeleted: true,
           comentario: `Deleted at ${deletedAtFormatted}`,
           deletedAt: deletedAt,
           updatedAt: deletedAt,
@@ -626,16 +628,16 @@ router.get('/card/:cardId/transactions', async (req, res) => {
     sortObj[sortBy] = sortOrder === 'desc' ? -1 : 1;
 
     // Obtener transacciones activas de la tarjeta
-    const transactions = await Transaction.find({ cardId: cardId, isDeleted: { $ne: true } })
+    const transactions = await Transaction.find({ cardId: cardId, isDeleted: { $ne: true }, status: { $ne: 'DELETED' } })
       .sort(sortObj)
       .skip(skip)
       .limit(parseInt(limit));
 
-    const totalTransactions = await Transaction.countDocuments({ cardId: cardId, isDeleted: { $ne: true } });
+    const totalTransactions = await Transaction.countDocuments({ cardId: cardId, isDeleted: { $ne: true }, status: { $ne: 'DELETED' } });
 
     // Calcular estadísticas de la tarjeta
     const cardStats = await Transaction.aggregate([
-      { $match: { cardId: cardId, isDeleted: { $ne: true } } },
+      { $match: { cardId: cardId, isDeleted: { $ne: true }, status: { $ne: 'DELETED' } } },
       {
         $group: {
           _id: null,
@@ -716,7 +718,7 @@ router.get('/admin/stats', authenticateToken, async (req, res) => {
     // Obtener estadísticas básicas
     const totalUsers = await User.countDocuments({});
     const totalCards = await Card.countDocuments({});
-    const totalTransactions = await Transaction.countDocuments({ isDeleted: { $ne: true } });
+    const totalTransactions = await Transaction.countDocuments({ isDeleted: { $ne: true }, status: { $ne: 'DELETED' } });
 
     // Obtener estadísticas de tarjetas por estado
     const activeCards = await Card.countDocuments({ status: 'ACTIVE' });
@@ -810,7 +812,8 @@ router.get('/card/:cardId/last-movements', authenticateToken, async (req, res) =
     // Obtener los últimos 4 movimientos activos de la tarjeta
     const lastMovements = await Transaction.find({ 
       cardId: cardId, 
-      isDeleted: { $ne: true } 
+      isDeleted: { $ne: true },
+      status: { $ne: 'DELETED' }
     })
     .sort({ createdAt: -1 }) // Ordenar por fecha de creación descendente
     .limit(4)
@@ -1131,6 +1134,138 @@ router.post('/card/:cardId/transactions', authenticateToken, async (req, res) =>
     const responseTime = Date.now() - startTime;
     console.error(`❌ Error creating transaction (${responseTime}ms):`, error);
     res.status(500).json({ success: false, error: error.message, responseTime: responseTime });
+  }
+});
+
+// Endpoint para admin dashboard - obtener TODAS las transacciones (incluyendo eliminadas) para auditoría
+router.get('/admin/card/:cardId/all-movements', authenticateToken, async (req, res) => {
+  const startTime = Date.now();
+  
+  try {
+    const { cardId } = req.params;
+    const { page = 1, limit = 50, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
+    
+    // Verificar que el usuario sea admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'Access denied. Admin role required.' 
+      });
+    }
+
+    const Card = getCardModel();
+    const Transaction = getTransactionModel();
+
+    // Verificar que la tarjeta existe
+    const card = await Card.findById(cardId);
+    if (!card) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Card not found' 
+      });
+    }
+
+    // Configurar paginación
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    // Configurar ordenamiento
+    const sortObj = {};
+    sortObj[sortBy] = sortOrder === 'desc' ? -1 : 1;
+
+    // Obtener TODAS las transacciones (incluyendo eliminadas) para el dashboard admin
+    const allTransactions = await Transaction.find({ cardId: cardId })
+      .sort(sortObj)
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const totalAllTransactions = await Transaction.countDocuments({ cardId: cardId });
+
+    // Calcular estadísticas SOLO con transacciones activas (sin eliminadas)
+    const cardStats = await Transaction.aggregate([
+      { $match: { cardId: cardId, isDeleted: { $ne: true }, status: { $ne: 'DELETED' } } },
+      {
+        $group: {
+          _id: null,
+          totalActiveTransactions: { $sum: 1 },
+          totalDeposited: {
+            $sum: {
+              $cond: [{ $eq: ['$operation', 'WALLET_DEPOSIT'] }, '$amount', 0]
+            }
+          },
+          totalRefunded: {
+            $sum: {
+              $cond: [{ $eq: ['$operation', 'TRANSACTION_REFUND'] }, '$amount', 0]
+            }
+          },
+          totalPosted: {
+            $sum: {
+              $cond: [{ $eq: ['$operation', 'TRANSACTION_APPROVED'] }, '$amount', 0]
+            }
+          },
+          totalPending: {
+            $sum: {
+              $cond: [{ $eq: ['$operation', 'TRANSACTION_PENDING'] }, '$amount', 0]
+            }
+          }
+        }
+      }
+    ]);
+
+    // Obtener conteo de transacciones eliminadas para información adicional
+    const deletedCount = await Transaction.countDocuments({ 
+      cardId: cardId, 
+      $or: [
+        { isDeleted: true },
+        { status: 'DELETED' }
+      ]
+    });
+
+    const stats = cardStats[0] || {
+      totalActiveTransactions: 0,
+      totalDeposited: 0,
+      totalRefunded: 0,
+      totalPosted: 0,
+      totalPending: 0
+    };
+
+    const responseTime = Date.now() - startTime;
+    console.log(`✅ Admin all movements for card ${cardId} fetched in ${responseTime}ms`);
+
+    res.json({
+      success: true,
+      card: {
+        _id: card._id,
+        name: card.name,
+        last4: card.last4,
+        status: card.status
+      },
+      stats: {
+        ...stats,
+        totalAvailable: stats.totalDeposited + stats.totalRefunded - stats.totalPosted - stats.totalPending,
+        totalDeletedTransactions: deletedCount,
+        totalAllTransactions: totalAllTransactions
+      },
+      transactions: allTransactions.map(tx => ({
+        ...tx.toObject(),
+        isDeleted: tx.isDeleted || tx.status === 'DELETED'
+      })),
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: totalAllTransactions,
+        pages: Math.ceil(totalAllTransactions / parseInt(limit))
+      },
+      responseTime: responseTime
+    });
+
+  } catch (error) {
+    const responseTime = Date.now() - startTime;
+    console.error(`❌ Error fetching admin all movements (${responseTime}ms):`, error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message, 
+      responseTime: responseTime 
+    });
   }
 });
 

@@ -13,7 +13,7 @@ const fetchAllRealCards = async () => {
   const execAsync = promisify(exec);
   
   try {
-    const curlCommand = `curl --location 'https://api.cryptomate.me/cards/virtual-cards/list' --header 'x-api-key: api-45f14849-914c-420e-a788-2e969d92bd5d' --header 'Content-Type: application/json' --header 'Cookie: JSESSIONID=7216B94569B249C7E74CF7409C99C656'`;
+    const curlCommand = `curl --location 'https://api.cryptomate.me/cards/virtual-cards/list' --header 'x-api-key: api-45f14849-914c-420e-a788-2e969d92bd5d' --header 'Content-Type: application/json' --header 'Cookie: JSESSIONID=97A7964CFD65CCA327AF0AA1AB798D42'`;
     
     console.log('🚀 Fetching ALL real cards from CryptoMate...');
     const { stdout, stderr } = await execAsync(curlCommand);
@@ -38,7 +38,7 @@ const fetchCardBalanceFromCryptoMate = async (cardId) => {
   const execAsync = promisify(exec);
   
   try {
-    const curlCommand = `curl --location 'https://api.cryptomate.me/cards/virtual-cards/${cardId}/virtual-balances' --header 'x-api-key: api-45f14849-914c-420e-a788-2e969d92bd5d' --header 'Content-Type: application/json' --header 'Cookie: JSESSIONID=7216B94569B249C7E74CF7409C99C656'`;
+    const curlCommand = `curl --location 'https://api.cryptomate.me/cards/virtual-cards/${cardId}/virtual-balances' --header 'x-api-key: api-45f14849-914c-420e-a788-2e969d92bd5d' --header 'Content-Type: application/json' --header 'Cookie: JSESSIONID=97A7964CFD65CCA327AF0AA1AB798D42'`;
     
     console.log(`🚀 Fetching balance for card ${cardId} from CryptoMate...`);
     const { stdout, stderr } = await execAsync(curlCommand);
@@ -57,23 +57,38 @@ const fetchCardBalanceFromCryptoMate = async (cardId) => {
 };
 
 // Función para traer transacciones de una tarjeta específica (ACTUALIZADA CON OPERATIONS)
-const fetchTransactionsFromCard = async (cardId, fromDate = '2024-01-01', toDate = '2025-01-25', page = 1, operations = 'TRANSACTION_APPROVED,TRANSACTION_REJECTED,TRANSACTION_REVERSED,TRANSACTION_REFUND,WALLET_DEPOSIT,OVERRIDE_VIRTUAL_BALANCE') => {
-  const { exec } = require('child_process');
-  const { promisify } = require('util');
-  const execAsync = promisify(exec);
-  
+const fetchTransactionsFromCard = async (cardId, fromDate = '2024-01-01', toDate = '2025-09-25', page = 1, operations = 'TRANSACTION_APPROVED,TRANSACTION_REJECTED,TRANSACTION_REVERSED,TRANSACTION_REFUND,WALLET_DEPOSIT,OVERRIDE_VIRTUAL_BALANCE') => {
+  const fetch = require('node-fetch');
+
   try {
-    const curlCommand = `curl --location 'https://api.cryptomate.me/cards/transactions/${cardId}/search?from_date=${fromDate}&to_date=${toDate}&operations=${operations}&size=100&page_number=${page}' --header 'x-api-key: api-45f14849-914c-420e-a788-2e969d92bd5d' --header 'Content-Type: application/json' --header 'Cookie: JSESSIONID=7216B94569B249C7E74CF7409C99C656'`;
+    // Convertir operations string a formato de múltiples parámetros
+    const operationsArray = operations.split(',');
+    const operationsParams = operationsArray.map(op => `operations=${op}`).join('&');
+    
+    const url = `https://api.cryptomate.me/cards/transactions/${cardId}/search?from_date=${fromDate}&to_date=${toDate}&${operationsParams}&size=100&page_number=${page}`;
     
     console.log(`🚀 Fetching transactions for card ${cardId} (page ${page}) with operations: ${operations}...`);
-    const { stdout, stderr } = await execAsync(curlCommand);
+    console.log(`🔗 URL: ${url}`);
     
-    if (stderr) {
-      console.error('❌ Curl stderr:', stderr);
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'x-api-key': 'api-45f14849-914c-420e-a788-2e969d92bd5d',
+        'Content-Type': 'application/json',
+        'Cookie': 'JSESSIONID=73355FE2A8BEFFDFA7E8913C7A1590DE'
+      }
+    });
+
+    const data = await response.json();
+    console.log(`✅ Fetched ${data.movements?.length || 0} transactions for card ${cardId}`);
+    console.log(`📊 API Response:`, JSON.stringify(data, null, 2));
+    
+    // Log cookies for debugging
+    const setCookie = response.headers.get('set-cookie');
+    if (setCookie) {
+      console.log(`🍪 New cookies: ${setCookie}`);
     }
     
-    const data = JSON.parse(stdout);
-    console.log(`✅ Fetched ${data.movements?.length || 0} transactions for card ${cardId}`);
     return data.movements || [];
   } catch (error) {
     console.error(`❌ Error fetching transactions for card ${cardId}:`, error);
@@ -276,8 +291,8 @@ router.post('/import-transactions/:cardId', async (req, res) => {
     const { cardId } = req.params;
     const { 
       fromDate = '2024-01-01', 
-      toDate = '2025-01-25', 
-      maxPages = 5,
+      toDate = '2025-09-25', 
+      maxPages = 10,
       operations = 'TRANSACTION_APPROVED,TRANSACTION_REJECTED,TRANSACTION_REVERSED,TRANSACTION_REFUND,WALLET_DEPOSIT,OVERRIDE_VIRTUAL_BALANCE'
     } = req.body;
     
@@ -288,13 +303,19 @@ router.post('/import-transactions/:cardId', async (req, res) => {
     const Card = getCardModel();
     const Transaction = getTransactionModel();
     
-    // Verificar que la tarjeta existe
+    // Verificar que la tarjeta existe (TEMPORALMENTE DESHABILITADO PARA IMPORTAR DESDE CRYPTOMATE)
+    console.log(`🔍 Looking for card with ID: ${cardId}`);
     const card = await Card.findById(cardId);
+    console.log(`🔍 Card found result:`, card ? 'FOUND' : 'NOT FOUND');
+    if (card) {
+      console.log(`✅ Card details: name=${card.name}, userId=${card.userId}`);
+    }
     if (!card) {
-      return res.status(404).json({
-        success: false,
-        message: `Card ${cardId} not found`
-      });
+      console.log(`⚠️ Card ${cardId} not found in local DB, but continuing with CryptoMate import...`);
+      // return res.status(404).json({
+      //   success: false,
+      //   message: `Card ${cardId} not found`
+      // });
     }
     
     // Ya no necesitamos crear depósito artificial - usamos OVERRIDE_VIRTUAL_BALANCE de CryptoMate
@@ -322,10 +343,19 @@ router.post('/import-transactions/:cardId', async (req, res) => {
         
         for (const cryptoTransaction of cryptoTransactions) {
           try {
+            const userId = card ? card.userId : cardId; // Usar cardId como userId si no se encuentra la tarjeta
+            console.log(`🔍 Using userId: ${userId} for transaction ${cryptoTransaction.id}`);
+            
+            // Asegurar que userId no sea undefined
+            if (!userId) {
+              console.error(`❌ userId is undefined for card ${cardId}`);
+              continue;
+            }
+            
             const nanoTransaction = await convertCryptoMateTransactionToNano(
               cryptoTransaction, 
               cardId, 
-              card.userId
+              userId
             );
             
             // Verificar si la transacción ya existe
@@ -390,10 +420,11 @@ router.post('/import-transactions/:cardId', async (req, res) => {
     
     // Actualizar KPIs del usuario Y campos financieros de la tarjeta
     try {
-      const user = await User.findById(card.userId);
+      const userId = card ? card.userId : cardId; // Usar cardId como userId si no se encuentra la tarjeta
+      const user = await User.findById(userId);
       if (user) {
         // Recalcular KPIs basándose en las transacciones
-        const userTransactions = await Transaction.find({ userId: card.userId });
+        const userTransactions = await Transaction.find({ userId: userId });
         
         user.stats.totalTransactions = userTransactions.length;
         user.stats.totalDeposited = userTransactions
