@@ -424,14 +424,29 @@ router.get('/admin/:cardId/stats', authenticateToken, async (req, res) => {
     const cardStatsService = require('../../services/cardStatsService');
     const recalculatedStats = await cardStatsService.recalculateCardStats(cardId);
 
-    // Obtener los últimos 4 movimientos activos de la tarjeta
-    const lastMovements = await Transaction.find({ 
+    // Función para parsear fecha de transacción
+    const parseTransactionDate = (dateStr, timeStr) => {
+      try {
+        const [day, month, year] = (dateStr || '').split('/');
+        const [timePart, rawPeriod] = (timeStr || '').split(' ');
+        let [hours, minutes] = (timePart || '00:00').split(':');
+        const period = (rawPeriod || '').toLowerCase();
+        hours = parseInt(hours);
+        minutes = parseInt(minutes);
+        if ((period === 'p. m.' || period === 'pm' || period === 'p.m.' || period === 'p') && hours !== 12) hours += 12;
+        if ((period === 'a. m.' || period === 'am' || period === 'a.m.' || period === 'a') && hours === 12) hours = 0;
+        return new Date(parseInt(year), parseInt(month) - 1, parseInt(day), hours, minutes);
+      } catch {
+        return new Date();
+      }
+    };
+
+    // Obtener todas las transacciones activas de la tarjeta
+    const allTransactions = await Transaction.find({ 
       cardId: cardId, 
       isDeleted: { $ne: true },
       status: { $ne: 'DELETED' }
     })
-    .sort({ createdAt: -1 }) // Ordenar por fecha de creación descendente
-    .limit(4)
     .select({
       _id: 1,
       name: 1,
@@ -442,6 +457,25 @@ router.get('/admin/:cardId/stats', authenticateToken, async (req, res) => {
       operation: 1,
       createdAt: 1
     });
+
+    // Ordenar por fecha real de la transacción (más reciente primero) y tomar solo las últimas 4
+    const lastMovements = allTransactions
+      .map(tx => ({
+        ...tx.toObject(),
+        realDate: parseTransactionDate(tx.date, tx.time)
+      }))
+      .sort((a, b) => b.realDate - a.realDate)
+      .slice(0, 4)
+      .map(tx => ({
+        _id: tx._id,
+        name: tx.name,
+        amount: tx.amount,
+        date: tx.date,
+        time: tx.time,
+        status: tx.status,
+        operation: tx.operation,
+        createdAt: tx.createdAt
+      }));
 
     // Formatear movimientos manteniendo el formato original completo
     const formattedMovements = lastMovements.map(movement => ({
@@ -1069,14 +1103,29 @@ router.get('/card/:cardId/last-movements', authenticateToken, async (req, res) =
       });
     }
 
-    // Obtener los últimos 4 movimientos activos de la tarjeta
-    const lastMovements = await Transaction.find({ 
+    // Función para parsear fecha de transacción
+    const parseTransactionDate = (dateStr, timeStr) => {
+      try {
+        const [day, month, year] = (dateStr || '').split('/');
+        const [timePart, rawPeriod] = (timeStr || '').split(' ');
+        let [hours, minutes] = (timePart || '00:00').split(':');
+        const period = (rawPeriod || '').toLowerCase();
+        hours = parseInt(hours);
+        minutes = parseInt(minutes);
+        if ((period === 'p. m.' || period === 'pm' || period === 'p.m.' || period === 'p') && hours !== 12) hours += 12;
+        if ((period === 'a. m.' || period === 'am' || period === 'a.m.' || period === 'a') && hours === 12) hours = 0;
+        return new Date(parseInt(year), parseInt(month) - 1, parseInt(day), hours, minutes);
+      } catch {
+        return new Date();
+      }
+    };
+
+    // Obtener todas las transacciones activas de la tarjeta
+    const allTransactions = await Transaction.find({ 
       cardId: cardId, 
       isDeleted: { $ne: true },
       status: { $ne: 'DELETED' }
     })
-    .sort({ createdAt: -1 }) // Ordenar por fecha de creación descendente
-    .limit(4)
     .select({
       _id: 1,
       name: 1,
@@ -1087,6 +1136,25 @@ router.get('/card/:cardId/last-movements', authenticateToken, async (req, res) =
       operation: 1,
       createdAt: 1
     });
+
+    // Ordenar por fecha real de la transacción (más reciente primero) y tomar solo las últimas 4
+    const lastMovements = allTransactions
+      .map(tx => ({
+        ...tx.toObject(),
+        realDate: parseTransactionDate(tx.date, tx.time)
+      }))
+      .sort((a, b) => b.realDate - a.realDate)
+      .slice(0, 4)
+      .map(tx => ({
+        _id: tx._id,
+        name: tx.name,
+        amount: tx.amount,
+        date: tx.date,
+        time: tx.time,
+        status: tx.status,
+        operation: tx.operation,
+        createdAt: tx.createdAt
+      }));
 
     // Guardar en caché
     const cacheData = {
