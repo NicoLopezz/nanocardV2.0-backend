@@ -9,6 +9,7 @@
     "test": "NODE_ENV=test jest",
     "test:watch": "NODE_ENV=test jest --watch",
     "prod": "NODE_ENV=production node app.js",
+    "vercel": "NODE_ENV=production node api/index.js",
     "cleanup:dev": "NODE_ENV=development node scripts/cleanup-dev-databases.js",
     "regenerate:dev": "NODE_ENV=development node scripts/regenerate-dev-data.js",
     "reset:dev": "npm run cleanup:dev && npm run regenerate:dev",
