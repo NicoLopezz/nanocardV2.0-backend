@@ -284,10 +284,48 @@ const importAllCardsFromCryptoMate = async () => {
   }
 };
 
+// Obtener todas las cards (alias para fetchCardsFromCryptoMate)
+const getAllCards = async () => {
+  return await fetchCardsFromCryptoMate();
+};
+
+// Obtener todas las transacciones de todas las cards
+const getAllTransactions = async () => {
+  try {
+    console.log('🚀 Fetching all transactions from all cards...');
+    
+    const cards = await fetchCardsFromCryptoMate();
+    if (!cards || !Array.isArray(cards)) {
+      return [];
+    }
+    
+    const allTransactions = [];
+    
+    for (const card of cards) {
+      try {
+        const cardTransactions = await fetchTransactionsFromCryptoMate(card.id);
+        if (Array.isArray(cardTransactions)) {
+          allTransactions.push(...cardTransactions);
+        }
+      } catch (error) {
+        console.error(`❌ Error fetching transactions for card ${card.id}:`, error.message);
+      }
+    }
+    
+    console.log(`✅ Fetched ${allTransactions.length} total transactions from ${cards.length} cards`);
+    return allTransactions;
+  } catch (error) {
+    console.error('❌ Error fetching all transactions:', error);
+    return [];
+  }
+};
+
 module.exports = {
   fetchCardsFromCryptoMate,
   fetchTransactionsFromCryptoMate,
   importAllCardsFromCryptoMate,
   convertCryptoMateCardToNano,
-  convertCryptoMateTransactionToNano
+  convertCryptoMateTransactionToNano,
+  getAllCards,
+  getAllTransactions
 };

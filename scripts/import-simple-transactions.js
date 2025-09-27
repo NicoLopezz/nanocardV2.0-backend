@@ -26,12 +26,12 @@ const importSimpleTransactions = async () => {
     
     const cardsWithTransactionsIds = cardsWithTransactions.map(c => c._id);
     
-    // Obtener solo las primeras 10 cards sin transacciones para probar
+    // Obtener todas las cards sin transacciones
     const cardsWithoutTransactions = await cardsDb.collection('cards').find({
       _id: { $nin: cardsWithTransactionsIds }
-    }).limit(10).toArray();
+    }).toArray();
     
-    console.log(`📋 Processing first ${cardsWithoutTransactions.length} cards as test`);
+    console.log(`📋 Processing ${cardsWithoutTransactions.length} cards`);
     console.log(`✅ Already processed: ${cardsWithTransactions.length} cards`);
     console.log('='.repeat(60));
     
@@ -96,7 +96,7 @@ const importSimpleTransactions = async () => {
     const totalTime = ((Date.now() - startTime) / 1000 / 60).toFixed(1);
     
     console.log('\n' + '='.repeat(60));
-    console.log('🎉 TEST IMPORT COMPLETED!');
+    console.log('🎉 IMPORT COMPLETED!');
     console.log('📊 Summary:');
     console.log(`   - Cards processed: ${totalProcessed}/${cardsWithoutTransactions.length}`);
     console.log(`   - Total transactions imported: ${totalTransactionsImported}`);
@@ -113,11 +113,10 @@ const importSimpleTransactions = async () => {
     }
     
     if (totalTransactionsImported > 0) {
-      console.log('\n🎉 SUCCESS! The import is working correctly');
-      console.log('💡 To import ALL remaining cards, modify the .limit(10) to process all cards');
+      console.log('\n🎉 SUCCESS! All transactions imported successfully');
     }
     
-    console.log('\n✅ Test import process finished!');
+    console.log('\n✅ Import process finished!');
     
   } catch (error) {
     console.error('❌ Import error:', error);

@@ -8,23 +8,95 @@ const cacheService = require('../../services/cacheService');
 const historyService = require('../../services/historyService');
 const { v4: uuidv4 } = require('uuid');
 
-// Endpoint para obtener las tarjetas del usuario autenticado
+// Endpoint para obtener las tarjetas del usuario autenticado con movimientos
 router.get('/', authenticateToken, async (req, res) => {
+  const startTime = Date.now();
+  
   try {
     const Card = getCardModel();
+    const Transaction = getTransactionModel();
     const userId = req.user.userId;
 
     // Obtener todas las tarjetas del usuario
     const cards = await Card.find({ userId: userId });
 
+    // Función para parsear fecha de transacción
+    const parseTransactionDate = (dateStr, timeStr) => {
+      try {
+        const [day, month, year] = (dateStr || '').split('/');
+        const [timePart, rawPeriod] = (timeStr || '').split(' ');
+        let [hours, minutes] = (timePart || '00:00').split(':');
+        const period = (rawPeriod || '').toLowerCase();
+        hours = parseInt(hours);
+        minutes = parseInt(minutes);
+        if ((period === 'p. m.' || period === 'pm' || period === 'p.m.' || period === 'p') && hours !== 12) hours += 12;
+        if ((period === 'a. m.' || period === 'am' || period === 'a.m.' || period === 'a') && hours === 12) hours = 0;
+        return new Date(parseInt(year), parseInt(month) - 1, parseInt(day), hours, minutes);
+      } catch {
+        return new Date();
+      }
+    };
+
+    // Enriquecer cada tarjeta con sus movimientos
+    const enrichedCards = await Promise.all(cards.map(async (card) => {
+      // Obtener las últimas transacciones de la tarjeta (máximo 50)
+      const transactions = await Transaction.find({ 
+        cardId: card._id, 
+        isDeleted: { $ne: true },
+        status: { $ne: 'DELETED' }
+      })
+      .select({
+        _id: 1,
+        name: 1,
+        amount: 1,
+        date: 1,
+        time: 1,
+        status: 1,
+        operation: 1,
+        comentario: 1,
+        createdAt: 1
+      })
+      .sort({ createdAt: -1 })
+      .limit(50);
+
+      // Ordenar por fecha real de la transacción (más reciente primero)
+      const sortedTransactions = transactions
+        .map(tx => ({
+          ...tx.toObject(),
+          realDate: parseTransactionDate(tx.date, tx.time)
+        }))
+        .sort((a, b) => b.realDate - a.realDate)
+        .map(tx => ({
+          _id: tx._id,
+          name: tx.name,
+          amount: tx.amount,
+          date: tx.date,
+          time: tx.time,
+          status: tx.status,
+          operation: tx.operation,
+          comentario: tx.comentario,
+          createdAt: tx.createdAt
+        }));
+
+      return {
+        ...card.toObject(),
+        movements: sortedTransactions
+      };
+    }));
+
+    const responseTime = Date.now() - startTime;
+    console.log(`✅ User cards with movements fetched in ${responseTime}ms`);
+
     res.json({
       success: true,
-      cards: cards,
-      count: cards.length
+      cards: enrichedCards,
+      count: enrichedCards.length,
+      responseTime: responseTime
     });
   } catch (error) {
-    console.error('❌ Error fetching user cards:', error);
-    res.status(500).json({ success: false, error: error.message });
+    const responseTime = Date.now() - startTime;
+    console.error(`❌ Error fetching user cards with movements (${responseTime}ms):`, error);
+    res.status(500).json({ success: false, error: error.message, responseTime: responseTime });
   }
 });
 
@@ -131,6 +203,7 @@ router.get('/admin/all', authenticateToken, async (req, res) => {
       time: 1,
       status: 1,
       operation: 1,
+      comentario: 1,
       createdAt: 1
     })
     .toArray();
@@ -166,6 +239,7 @@ router.get('/admin/all', authenticateToken, async (req, res) => {
           time: tx.time,
           status: tx.status,
           operation: tx.operation,
+          comentario: tx.comentario,
           createdAt: tx.createdAt
         };
       }).filter(tx => tx && tx._id && tx.name !== undefined);
@@ -455,6 +529,7 @@ router.get('/admin/:cardId/stats', authenticateToken, async (req, res) => {
       time: 1,
       status: 1,
       operation: 1,
+      comentario: 1,
       createdAt: 1
     });
 
@@ -474,6 +549,7 @@ router.get('/admin/:cardId/stats', authenticateToken, async (req, res) => {
         time: tx.time,
         status: tx.status,
         operation: tx.operation,
+        comentario: tx.comentario,
         createdAt: tx.createdAt
       }));
 
@@ -486,6 +562,7 @@ router.get('/admin/:cardId/stats', authenticateToken, async (req, res) => {
       time: movement.time,
       status: movement.status,
       operation: movement.operation,
+      comentario: movement.comentario,
       createdAt: movement.createdAt
     }));
 
@@ -1134,6 +1211,7 @@ router.get('/card/:cardId/last-movements', authenticateToken, async (req, res) =
       time: 1,
       status: 1,
       operation: 1,
+      comentario: 1,
       createdAt: 1
     });
 
@@ -1153,6 +1231,7 @@ router.get('/card/:cardId/last-movements', authenticateToken, async (req, res) =
         time: tx.time,
         status: tx.status,
         operation: tx.operation,
+        comentario: tx.comentario,
         createdAt: tx.createdAt
       }));
 

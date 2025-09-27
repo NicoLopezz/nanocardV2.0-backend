@@ -18,6 +18,7 @@ const adminRoutes = require('./routes/internal/admin');
 const historyRoutes = require('./routes/internal/history');
 const reconciliationRoutes = require('./routes/internal/reconciliations');
 const consolidationRoutes = require('./routes/internal/consolidations');
+const kpisRoutes = require('./routes/internal/kpis');
 
 // Importar rutas - Desarrollo y testing
 const seedRoutes = require('./routes/dev/seed');
@@ -81,6 +82,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/history', historyRoutes);
 app.use('/api/reconciliations', reconciliationRoutes);
 app.use('/consolidations', consolidationRoutes);
+app.use('/api/kpis', kpisRoutes);
 
 // Rutas - Desarrollo y testing
 app.use('/api/seed', seedRoutes);

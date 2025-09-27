@@ -7,7 +7,8 @@ const {
   restoreTransaction,
   getTransactionsByCard,
   getTransactionHistory,
-  getDeletedTransactions
+  getDeletedTransactions,
+  getRecentTransactions
 } = require('../../services/transactionService');
 const { getTransactionModel } = require('../../models/Transaction');
 
@@ -103,6 +104,29 @@ router.get('/:userId/deleted', async (req, res) => {
     const transactions = await getDeletedTransactions(req.params.userId);
     res.json({ success: true, transactions });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Obtener las últimas 10 transacciones registradas
+router.get('/recent', async (req, res) => {
+  try {
+    const { limit } = req.query;
+    const limitNumber = limit ? parseInt(limit) : 10;
+    
+    if (limitNumber > 50) {
+      return res.status(400).json({ 
+        error: 'Limit cannot exceed 50 transactions' 
+      });
+    }
+    
+    const result = await getRecentTransactions(limitNumber);
+    res.json({ 
+      success: true, 
+      data: result 
+    });
+  } catch (error) {
+    console.error('Error getting recent transactions:', error);
     res.status(500).json({ error: error.message });
   }
 });
