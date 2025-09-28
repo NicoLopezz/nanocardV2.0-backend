@@ -478,18 +478,14 @@ router.get('/admin/:cardId/stats', authenticateToken, async (req, res) => {
     const Card = getCardModel();
     const Transaction = getTransactionModel();
 
-    // Verificar que la tarjeta existe
-    const card = await Card.findById(cardId);
+    // Verificar que la tarjeta existe (incluyendo campos de estadísticas)
+    const card = await Card.findById(cardId).select('+stats +transactionStats');
     if (!card) {
       return res.status(404).json({ 
         success: false, 
         message: 'Card not found' 
       });
     }
-
-    // Recalcular stats de la tarjeta usando el servicio
-    const cardStatsService = require('../../services/cardStatsService');
-    const recalculatedStats = await cardStatsService.recalculateCardStats(cardId);
 
     // Función para parsear fecha de transacción
     const parseTransactionDate = (dateStr, timeStr) => {
@@ -567,10 +563,19 @@ router.get('/admin/:cardId/stats', authenticateToken, async (req, res) => {
       card: {
         _id: card._id,
         name: card.name,
-        deposited: recalculatedStats.card.deposited,
-        posted: recalculatedStats.card.posted,
-        available: recalculatedStats.card.available,
+        deposited: card.stats?.money_in || 0,
+        posted: card.stats?.posted || 0,
+        available: card.stats?.available || 0,
         status: card.status
+      },
+      stats: {
+        money_in: card.stats?.money_in || 0,
+        refund: card.stats?.refund || 0,
+        posted: card.stats?.posted || 0,
+        reversed: card.stats?.reversed || 0,
+        rejected: card.stats?.rejected || 0,
+        pending: card.stats?.pending || 0,
+        available: card.stats?.available || 0
       },
       lastMovements: formattedMovements,
       responseTime: responseTime
