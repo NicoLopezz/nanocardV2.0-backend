@@ -135,22 +135,8 @@ router.get('/admin/all', authenticateToken, async (req, res) => {
     const User = getUserModel();
     const Transaction = getTransactionModel();
 
-    // Obtener todas las tarjetas con campos específicos
-    const cards = await Card.find({}, {
-      _id: 1,
-      name: 1,
-      last4: 1,
-      status: 1,
-      deposited: 1,
-      refunded: 1,
-      posted: 1,
-      available: 1,
-      userId: 1,
-      supplier: 1,
-      limits: 1,
-      createdAt: 1,
-      updatedAt: 1
-    });
+    // Obtener todas las tarjetas con campos específicos (incluyendo estadísticas)
+    const cards = await Card.find({}).select('_id name last4 status userId supplier limits createdAt updatedAt transactionStats stats');
 
     // Obtener todos los usuarios de una vez (optimización)
     const userIds = [...new Set(cards.map(card => card.userId ? card.userId.toString() : null).filter(Boolean))];
@@ -247,29 +233,36 @@ router.get('/admin/all', authenticateToken, async (req, res) => {
       transactionsByCard.set(cardId, cleanTransactions);
     });
     
-    // Enriquecer tarjetas con información del usuario y transacciones
+    // No calcular estadísticas dinámicamente - usar datos guardados en la DB
+
+    // Enriquecer tarjetas con información del usuario, transacciones y estadísticas de la DB
     const enrichedCards = cards.map(card => {
       const userIdString = card.userId ? card.userId.toString() : null;
       const user = userIdString ? userMap.get(userIdString) : null;
       const lastTransactions = transactionsByCard.get(card._id.toString()) || [];
       
-      
+      // Usar estadísticas guardadas en la DB (usar stats directamente de la DB)
       return {
         _id: card._id,
         name: card.name,
         last4: card.last4,
         status: card.status,
-        deposited: card.deposited || 0,
-        refunded: card.refunded || 0,
-        posted: card.posted || 0,
-        available: card.available || 0,
+        stats: {
+          money_in: card.stats?.money_in || 0,
+          refund: card.stats?.refund || 0,
+          posted: card.stats?.posted || 0,
+          reversed: card.stats?.reversed || 0,
+          rejected: card.stats?.rejected || 0,
+          pending: card.stats?.pending || 0,
+          available: card.stats?.available || 0
+        },
         userId: card.userId,
         userName: user ? `${user.profile?.firstName || ''} ${user.profile?.lastName || ''}`.trim() || user.username : 'Unknown User',
         supplier: card.supplier || 'Nano',
         limits: card.limits,
         createdAt: card.createdAt,
         updatedAt: card.updatedAt,
-        transactions: lastTransactions // NUEVO: Agregar los últimos 4 movimientos
+        transactions: lastTransactions
       };
     });
 
@@ -943,8 +936,8 @@ router.get('/card/:cardId/transactions', async (req, res) => {
     const Card = getCardModel();
     const Transaction = getTransactionModel();
 
-    // Verificar que la tarjeta existe
-    const card = await Card.findById(cardId);
+    // Verificar que la tarjeta existe (incluyendo campos de estadísticas)
+    const card = await Card.findById(cardId).select('+stats +transactionStats');
     if (!card) {
       return res.status(404).json({ success: false, message: 'Card not found' });
     }
@@ -971,43 +964,17 @@ router.get('/card/:cardId/transactions', async (req, res) => {
 
     const totalTransactions = await Transaction.countDocuments(transactionFilter);
 
-    // Calcular estadísticas de la tarjeta (optimizado)
-    const cardStats = await Transaction.aggregate([
-      { $match: { cardId: cardId, isDeleted: { $ne: true }, status: { $ne: 'DELETED' } } },
-      {
-        $group: {
-          _id: null,
-          totalTransactions: { $sum: 1 },
-          totalDeposited: {
-            $sum: {
-              $cond: [{ $eq: ['$operation', 'WALLET_DEPOSIT'] }, '$amount', 0]
-            }
-          },
-          totalRefunded: {
-            $sum: {
-              $cond: [{ $eq: ['$operation', 'TRANSACTION_REFUND'] }, '$amount', 0]
-            }
-          },
-          totalPosted: {
-            $sum: {
-              $cond: [{ $eq: ['$operation', 'TRANSACTION_APPROVED'] }, '$amount', 0]
-            }
-          },
-          totalPending: {
-            $sum: {
-              $cond: [{ $eq: ['$operation', 'TRANSACTION_PENDING'] }, '$amount', 0]
-            }
-          }
-        }
-      }
-    ]);
-
-    const stats = cardStats[0] || {
-      totalTransactions: 0,
-      totalDeposited: 0,
-      totalRefunded: 0,
-      totalPosted: 0,
-      totalPending: 0
+    // Usar las estadísticas ya calculadas y guardadas en la tarjeta
+    const stats = {
+      totalTransactions: card.transactionStats?.totalTransactions || 0,
+      money_in: card.stats?.money_in || 0,
+      refund: card.stats?.refund || 0,
+      posted_approved: card.stats?.posted || 0,
+      reversed: card.stats?.reversed || 0,
+      rejected: card.stats?.rejected || 0,
+      withdrawal: card.transactionStats?.byAmount?.WITHDRAWAL || 0,
+      pending: card.stats?.pending || 0,
+      totalAvailable: card.stats?.available || 0
     };
 
     const responseData = {
@@ -1019,8 +986,7 @@ router.get('/card/:cardId/transactions', async (req, res) => {
         status: card.status
       },
       stats: {
-        ...stats,
-        totalAvailable: stats.totalDeposited + stats.totalRefunded - stats.totalPosted - stats.totalPending
+        ...stats
       },
       transactions: transactions.map(tx => ({
         ...tx.toObject(),
@@ -1097,25 +1063,71 @@ router.get('/admin/stats', authenticateToken, async (req, res) => {
       status: { $in: ['SUSPENDED', 'BLOCKED', 'FROZEN'] } 
     });
 
-    // Obtener estadísticas financieras globales
-    const financialStats = await Card.aggregate([
+    // Obtener estadísticas financieras globales desde transacciones (más preciso)
+    const TransactionModel = getTransactionModel();
+    const financialStats = await TransactionModel.aggregate([
+      { $match: { isDeleted: { $ne: true }, status: { $ne: 'DELETED' } } },
       {
         $group: {
           _id: null,
-          totalDeposited: { $sum: '$deposited' },
-          totalRefunded: { $sum: '$refunded' },
-          totalPosted: { $sum: '$posted' },
-          totalAvailable: { $sum: '$available' }
+          money_in: {
+            $sum: {
+              $cond: [
+                { $in: ['$operation', ['WALLET_DEPOSIT', 'OVERRIDE_VIRTUAL_BALANCE']] }, 
+                '$amount', 
+                0
+              ]
+            }
+          },
+          refund: {
+            $sum: {
+              $cond: [{ $eq: ['$operation', 'TRANSACTION_REFUND'] }, '$amount', 0]
+            }
+          },
+          posted_approved: {
+            $sum: {
+              $cond: [{ $eq: ['$operation', 'TRANSACTION_APPROVED'] }, '$amount', 0]
+            }
+          },
+          reversed: {
+            $sum: {
+              $cond: [{ $eq: ['$operation', 'TRANSACTION_REVERSED'] }, '$amount', 0]
+            }
+          },
+          rejected: {
+            $sum: {
+              $cond: [{ $eq: ['$operation', 'TRANSACTION_REJECTED'] }, '$amount', 0]
+            }
+          },
+          withdrawal: {
+            $sum: {
+              $cond: [{ $eq: ['$operation', 'WITHDRAWAL'] }, '$amount', 0]
+            }
+          },
+          pending: {
+            $sum: {
+              $cond: [{ $eq: ['$operation', 'TRANSACTION_PENDING'] }, '$amount', 0]
+            }
+          }
         }
       }
     ]);
 
     const stats = financialStats[0] || {
-      totalDeposited: 0,
-      totalRefunded: 0,
-      totalPosted: 0,
-      totalAvailable: 0
+      money_in: 0,
+      refund: 0,
+      posted_approved: 0,
+      reversed: 0,
+      rejected: 0,
+      pending: 0,
+      available: 0
     };
+    
+    // Calcular posted como approved - reversed
+    stats.posted = stats.posted_approved - stats.reversed;
+    
+    // Calcular available correctamente
+    stats.available = stats.money_in + stats.refund - stats.posted - stats.pending;
 
     res.json({
       success: true,
@@ -1449,7 +1461,7 @@ router.post('/card/:cardId/transactions', authenticateToken, async (req, res) =>
     }
 
     // Determinar si es crédito o débito
-    const isCredit = operation === 'WALLET_DEPOSIT' || operation === 'TRANSACTION_REFUND' || operation === 'OVERRIDE_VIRTUAL_BALANCE';
+    const isCredit = operation === 'WALLET_DEPOSIT' || operation === 'TRANSACTION_REFUND' || operation === 'OVERRIDE_VIRTUAL_BALANCE' || operation === 'TRANSACTION_REVERSED';
     // WITHDRAWAL es débito (dinero que sale de la cuenta)
 
     // Crear la transacción
@@ -1492,7 +1504,7 @@ router.post('/card/:cardId/transactions', authenticateToken, async (req, res) =>
       .filter(t => !t.credit)
       .reduce((sum, t) => sum + t.amount, 0);
     
-    card.available = card.deposited - card.posted;
+    card.available = card.deposited + card.refunded - card.posted;
     
     await card.save();
 
@@ -1628,22 +1640,41 @@ router.get('/admin/cards', authenticateToken, async (req, res) => {
         $group: {
           _id: null,
           totalTransactions: { $sum: 1 },
-          totalDeposited: {
+          money_in: {
             $sum: {
-              $cond: [{ $eq: ['$operation', 'WALLET_DEPOSIT'] }, '$amount', 0]
+              $cond: [
+                { $in: ['$operation', ['WALLET_DEPOSIT', 'OVERRIDE_VIRTUAL_BALANCE']] }, 
+                '$amount', 
+                0
+              ]
             }
           },
-          totalRefunded: {
+          refund: {
             $sum: {
               $cond: [{ $eq: ['$operation', 'TRANSACTION_REFUND'] }, '$amount', 0]
             }
           },
-          totalPosted: {
+          posted_approved: {
             $sum: {
               $cond: [{ $eq: ['$operation', 'TRANSACTION_APPROVED'] }, '$amount', 0]
             }
           },
-          totalPending: {
+          reversed: {
+            $sum: {
+              $cond: [{ $eq: ['$operation', 'TRANSACTION_REVERSED'] }, '$amount', 0]
+            }
+          },
+          rejected: {
+            $sum: {
+              $cond: [{ $eq: ['$operation', 'TRANSACTION_REJECTED'] }, '$amount', 0]
+            }
+          },
+          withdrawal: {
+            $sum: {
+              $cond: [{ $eq: ['$operation', 'WITHDRAWAL'] }, '$amount', 0]
+            }
+          },
+          pending: {
             $sum: {
               $cond: [{ $eq: ['$operation', 'TRANSACTION_PENDING'] }, '$amount', 0]
             }
@@ -1772,22 +1803,41 @@ router.get('/admin/card/:cardId/all-movements', authenticateToken, async (req, r
         $group: {
           _id: null,
           totalActiveTransactions: { $sum: 1 },
-          totalDeposited: {
+          money_in: {
             $sum: {
-              $cond: [{ $eq: ['$operation', 'WALLET_DEPOSIT'] }, '$amount', 0]
+              $cond: [
+                { $in: ['$operation', ['WALLET_DEPOSIT', 'OVERRIDE_VIRTUAL_BALANCE']] }, 
+                '$amount', 
+                0
+              ]
             }
           },
-          totalRefunded: {
+          refund: {
             $sum: {
               $cond: [{ $eq: ['$operation', 'TRANSACTION_REFUND'] }, '$amount', 0]
             }
           },
-          totalPosted: {
+          posted_approved: {
             $sum: {
               $cond: [{ $eq: ['$operation', 'TRANSACTION_APPROVED'] }, '$amount', 0]
             }
           },
-          totalPending: {
+          reversed: {
+            $sum: {
+              $cond: [{ $eq: ['$operation', 'TRANSACTION_REVERSED'] }, '$amount', 0]
+            }
+          },
+          rejected: {
+            $sum: {
+              $cond: [{ $eq: ['$operation', 'TRANSACTION_REJECTED'] }, '$amount', 0]
+            }
+          },
+          withdrawal: {
+            $sum: {
+              $cond: [{ $eq: ['$operation', 'WITHDRAWAL'] }, '$amount', 0]
+            }
+          },
+          pending: {
             $sum: {
               $cond: [{ $eq: ['$operation', 'TRANSACTION_PENDING'] }, '$amount', 0]
             }
