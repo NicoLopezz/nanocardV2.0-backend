@@ -1,6 +1,7 @@
 const { getTransactionModel } = require('../models/Transaction');
 const { getUserModel } = require('../models/User');
 const { getCardModel } = require('../models/Card');
+const EventService = require('./eventService');
 
 // Crear transacción con historial
 const createTransaction = async (transactionData) => {
@@ -19,8 +20,12 @@ const createTransaction = async (transactionData) => {
   
   await transaction.save();
   
-  // Actualizar KPIs del usuario
-  await updateUserStats(transactionData.userId, transactionData);
+  // Emitir evento para actualizar stats
+  EventService.emitTransactionCreated(
+    transactionData.userId, 
+    transactionData.cardId, 
+    transaction
+  );
   
   return transaction;
 };
@@ -60,6 +65,13 @@ const updateTransaction = async (transactionId, updates, modifiedBy, reason = ''
     transaction.updatedAt = new Date();
     
     await transaction.save();
+    
+    // Emitir evento para actualizar stats
+    EventService.emitTransactionUpdated(
+      transaction.userId, 
+      transaction.cardId, 
+      transaction
+    );
   }
   
   return transaction;
@@ -89,8 +101,12 @@ const deleteTransaction = async (transactionId, deletedBy, reason = '') => {
   
   await transaction.save();
   
-  // Actualizar KPIs del usuario (restar de los totales)
-  await updateUserStatsAfterDelete(transaction.userId, transaction);
+  // Emitir evento para actualizar stats
+  EventService.emitTransactionDeleted(
+    transaction.userId, 
+    transaction.cardId, 
+    transaction
+  );
   
   return transaction;
 };
@@ -118,8 +134,12 @@ const restoreTransaction = async (transactionId, restoredBy, reason = '') => {
   
   await transaction.save();
   
-  // Actualizar KPIs del usuario (sumar a los totales)
-  await updateUserStats(transaction.userId, transaction);
+  // Emitir evento para actualizar stats
+  EventService.emitTransactionRestored(
+    transaction.userId, 
+    transaction.cardId, 
+    transaction
+  );
   
   return transaction;
 };
@@ -160,55 +180,6 @@ const getDeletedTransactions = async (userId) => {
   }).sort({ deletedAt: -1 });
 };
 
-// Actualizar KPIs del usuario
-const updateUserStats = async (userId, transactionData) => {
-  const User = getUserModel();
-  const user = await User.findById(userId);
-  
-  if (!user) {
-    throw new Error('User not found');
-  }
-  
-  // Incrementar contadores
-  user.stats.totalTransactions += 1;
-  
-  // Actualizar montos según el tipo de transacción
-  if (transactionData.credit) {
-    user.stats.totalDeposited += transactionData.amount; // Money In
-  } else {
-    user.stats.totalPosted += transactionData.amount;    // Posted
-  }
-  
-  // Recalcular available (deposited - posted)
-  user.stats.totalAvailable = user.stats.totalDeposited - user.stats.totalPosted;
-  
-  await user.save();
-};
-
-// Actualizar KPIs después de eliminar
-const updateUserStatsAfterDelete = async (userId, transaction) => {
-  const User = getUserModel();
-  const user = await User.findById(userId);
-  
-  if (!user) {
-    throw new Error('User not found');
-  }
-  
-  // Decrementar contadores
-  user.stats.totalTransactions -= 1;
-  
-  // Restar montos según el tipo de transacción
-  if (transaction.credit) {
-    user.stats.totalDeposited -= transaction.amount;
-  } else {
-    user.stats.totalPosted -= transaction.amount;
-  }
-  
-  // Recalcular available
-  user.stats.totalAvailable = user.stats.totalDeposited - user.stats.totalPosted;
-  
-  await user.save();
-};
 
 // Obtener las últimas 10 transacciones con información del usuario y tarjeta
 const getRecentTransactions = async (limit = 10) => {
@@ -344,6 +315,5 @@ module.exports = {
   getTransactionsByCard,
   getTransactionHistory,
   getDeletedTransactions,
-  updateUserStats,
   getRecentTransactions
 };

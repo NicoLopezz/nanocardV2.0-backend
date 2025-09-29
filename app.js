@@ -5,6 +5,7 @@ const rateLimit = require('express-rate-limit');
 const { connectDatabases } = require('./config/database');
 const config = require('./config/environment');
 const timingMiddleware = require('./middleware/timing');
+const EventService = require('./services/eventService');
 
 // Importar rutas - APIs externas
 const cryptomateRoutes = require('./routes/api/cryptomate/index');
@@ -13,6 +14,7 @@ const realCryptoMateRoutes = require('./routes/api/cryptomate/real');
 // Importar rutas - APIs internas
 const transactionRoutes = require('./routes/internal/transactions');
 const cardsStatsRoutes = require('./routes/internal/cards');
+const statsRoutes = require('./routes/internal/stats');
 const authRoutes = require('./routes/internal/auth');
 const adminRoutes = require('./routes/internal/admin');
 const historyRoutes = require('./routes/internal/history');
@@ -77,6 +79,7 @@ app.use('/api/real-cryptomate', realCryptoMateRoutes);
 // Rutas - APIs internas
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/cards', cardsStatsRoutes);
+app.use('/api/stats', statsRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/history', historyRoutes);
@@ -129,6 +132,9 @@ const startServer = async () => {
     
     await connectDatabases();
     console.log('✅ Databases connected successfully');
+    
+    // Inicializar sistema de eventos
+    EventService.initialize();
     
     app.listen(PORT, () => {
       console.log(`🚀 Nano Backend running on port ${PORT}`);

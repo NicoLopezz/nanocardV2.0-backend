@@ -4,7 +4,7 @@ const { getCardModel } = require('../../models/Card');
 const { getUserModel } = require('../../models/User');
 const { getTransactionModel } = require('../../models/Transaction');
 const { authenticateToken } = require('../../middleware/auth');
-const cacheService = require('../../services/cacheService');
+// const cacheService = require('../../services/cacheService'); // REMOVED
 const historyService = require('../../services/historyService');
 const { v4: uuidv4 } = require('uuid');
 
@@ -113,23 +113,9 @@ router.get('/admin/all', authenticateToken, async (req, res) => {
       });
     }
 
-    // Verificar caché primero
-    const cacheKey = cacheService.KEYS.ADMIN_ALL_CARDS;
-    const cachedData = cacheService.get(cacheKey);
-    
-    if (cachedData) {
-      const responseTime = Date.now() - startTime;
-      console.log(`✅ Admin all cards served from cache in ${responseTime}ms`);
-      
-      return res.json({
-        success: true,
-        cards: cachedData.cards,
-        count: cachedData.count,
-        cached: true,
-        cacheTimestamp: cachedData.timestamp,
-        responseTime: responseTime
-      });
-    }
+    // REFRESH AUTOMÁTICO REMOVIDO - Usar stats guardadas en la DB
+
+    // CACHÉ REMOVIDO - Consulta directa a la base de datos
 
     const Card = getCardModel();
     const User = getUserModel();
@@ -254,7 +240,11 @@ router.get('/admin/all', authenticateToken, async (req, res) => {
           reversed: card.stats?.reversed || 0,
           rejected: card.stats?.rejected || 0,
           pending: card.stats?.pending || 0,
-          available: card.stats?.available || 0
+          withdrawal: card.stats?.withdrawal || 0,
+          available: card.stats?.available || 0,
+          total_all_transactions: card.stats?.total_all_transactions || 0,
+          total_deleted_transactions: card.stats?.total_deleted_transactions || 0,
+          deleted_amount: card.stats?.deleted_amount || 0
         },
         userId: card.userId,
         userName: user ? `${user.profile?.firstName || ''} ${user.profile?.lastName || ''}`.trim() || user.username : 'Unknown User',
@@ -272,7 +262,7 @@ router.get('/admin/all', authenticateToken, async (req, res) => {
       count: enrichedCards.length,
       timestamp: new Date().toISOString()
     };
-    cacheService.set(cacheKey, cacheData);
+    // CACHÉ REMOVIDO - No se guarda en caché
 
     const responseTime = Date.now() - startTime;
     console.log(`✅ Admin all cards fetched from database in ${responseTime}ms`);
@@ -382,6 +372,16 @@ router.get('/user/:userId/stats', async (req, res) => {
     const { userId } = req.params;
     const User = getUserModel();
     const Transaction = getTransactionModel();
+    
+    // 🔄 REFRESH AUTOMÁTICO: Actualizar stats del usuario antes de devolverlas
+    const StatsRefreshService = require('../../services/statsRefreshService');
+    try {
+      await StatsRefreshService.recalculateUserStats(userId);
+      console.log(`✅ User stats refreshed for ${userId} before serving to frontend`);
+    } catch (refreshError) {
+      console.warn(`⚠️ Warning: Could not refresh user stats for ${userId}:`, refreshError.message);
+      // Continuar con la operación aunque falle el refresh
+    }
 
     const user = await User.findById(userId);
     if (!user) {
@@ -477,6 +477,8 @@ router.get('/admin/:cardId/stats', authenticateToken, async (req, res) => {
     const { cardId } = req.params;
     const Card = getCardModel();
     const Transaction = getTransactionModel();
+    
+    // REFRESH AUTOMÁTICO REMOVIDO - Usar stats guardadas en la DB
 
     // Verificar que la tarjeta existe (incluyendo campos de estadísticas)
     const card = await Card.findById(cardId).select('+stats +transactionStats');
@@ -504,11 +506,9 @@ router.get('/admin/:cardId/stats', authenticateToken, async (req, res) => {
       }
     };
 
-    // Obtener todas las transacciones activas de la tarjeta
+    // Obtener TODAS las transacciones de la tarjeta (incluyendo eliminadas para admin)
     const allTransactions = await Transaction.find({ 
-      cardId: cardId, 
-      isDeleted: { $ne: true },
-      status: { $ne: 'DELETED' }
+      cardId: cardId
     })
     .select({
       _id: 1,
@@ -519,7 +519,8 @@ router.get('/admin/:cardId/stats', authenticateToken, async (req, res) => {
       status: 1,
       operation: 1,
       comentario: 1,
-      createdAt: 1
+      createdAt: 1,
+      isDeleted: 1
     });
 
     // Ordenar por fecha real de la transacción (más reciente primero) y tomar solo las últimas 4
@@ -539,7 +540,8 @@ router.get('/admin/:cardId/stats', authenticateToken, async (req, res) => {
         status: tx.status,
         operation: tx.operation,
         comentario: tx.comentario,
-        createdAt: tx.createdAt
+        createdAt: tx.createdAt,
+        isDeleted: tx.isDeleted || tx.status === 'DELETED'
       }));
 
     // Formatear movimientos manteniendo el formato original completo
@@ -552,7 +554,8 @@ router.get('/admin/:cardId/stats', authenticateToken, async (req, res) => {
       status: movement.status,
       operation: movement.operation,
       comentario: movement.comentario,
-      createdAt: movement.createdAt
+      createdAt: movement.createdAt,
+      isDeleted: movement.isDeleted
     }));
 
     const responseTime = Date.now() - startTime;
@@ -575,7 +578,11 @@ router.get('/admin/:cardId/stats', authenticateToken, async (req, res) => {
         reversed: card.stats?.reversed || 0,
         rejected: card.stats?.rejected || 0,
         pending: card.stats?.pending || 0,
-        available: card.stats?.available || 0
+        withdrawal: card.stats?.withdrawal || 0,
+        available: card.stats?.available || 0,
+        total_all_transactions: card.stats?.total_all_transactions || 0,
+        total_deleted_transactions: card.stats?.total_deleted_transactions || 0,
+        deleted_amount: card.stats?.deleted_amount || 0
       },
       lastMovements: formattedMovements,
       responseTime: responseTime
@@ -761,8 +768,7 @@ router.put('/card/:cardId/transactions/:transactionId', authenticateToken, async
 
     // Invalidar caché relacionado
     const lastMovementsCacheKey = `last_movements_${cardId}`;
-    cacheService.invalidate(lastMovementsCacheKey);
-    cacheService.invalidate(cacheService.KEYS.ADMIN_ALL_CARDS);
+    // CACHÉ REMOVIDO - No se invalida caché
 
     res.json({
       success: true,
@@ -887,8 +893,7 @@ router.delete('/card/:cardId/transactions/:transactionId', authenticateToken, as
 
     // Invalidar caché relacionado
     const lastMovementsCacheKey = `last_movements_${cardId}`;
-    cacheService.invalidate(lastMovementsCacheKey);
-    cacheService.invalidate(cacheService.KEYS.ADMIN_ALL_CARDS);
+    // CACHÉ REMOVIDO - No se invalida caché
 
     res.json({
       success: true,
@@ -924,19 +929,9 @@ router.get('/card/:cardId/transactions', async (req, res) => {
     
     // Ajustar la clave de caché para incluir el parámetro action
     const cacheKey = `transactions_${cardId}_${page}_${limit}_${sortBy}_${sortOrder}_${includeDeleted ? 'all' : 'active'}`;
-    const cachedData = cacheService.get(cacheKey);
+    // CACHÉ REMOVIDO - Consulta directa a la base de datos
     
-    if (cachedData && !includeDeleted) { // Solo usar caché para transacciones activas para evitar mostrar data antigua
-      const responseTime = Date.now() - startTime;
-      console.log(`✅ Card transactions served from cache in ${responseTime}ms`);
-      
-      return res.json({
-        ...cachedData,
-        cached: true,
-        cacheTimestamp: cachedData.timestamp,
-        responseTime: responseTime
-      });
-    }
+    // CACHÉ REMOVIDO - Siempre consulta directa a la base de datos
     
     const Card = getCardModel();
     const Transaction = getTransactionModel();
@@ -977,9 +972,12 @@ router.get('/card/:cardId/transactions', async (req, res) => {
       posted_approved: card.stats?.posted || 0,
       reversed: card.stats?.reversed || 0,
       rejected: card.stats?.rejected || 0,
-      withdrawal: card.transactionStats?.byAmount?.WITHDRAWAL || 0,
+      withdrawal: card.stats?.withdrawal || 0,
       pending: card.stats?.pending || 0,
-      totalAvailable: card.stats?.available || 0
+      totalAvailable: card.stats?.available || 0,
+      totalDeletedTransactions: card.stats?.total_deleted_transactions || 0,
+      totalAllTransactions: card.stats?.total_all_transactions || 0,
+      deletedAmount: card.stats?.deleted_amount || 0
     };
 
     const responseData = {
@@ -1025,7 +1023,7 @@ router.get('/card/:cardId/transactions', async (req, res) => {
         ...responseData,
         timestamp: new Date().toISOString()
       };
-      cacheService.set(cacheKey, cacheData, 300); // 5 minutos de TTL
+      // CACHÉ REMOVIDO - No se guarda en caché
     }
 
     const responseTime = Date.now() - startTime;
@@ -1051,6 +1049,48 @@ router.get('/admin/stats', authenticateToken, async (req, res) => {
         success: false, 
         error: 'Access denied. Admin role required.' 
       });
+    }
+
+    // 🔄 REFRESH AUTOMÁTICO: Actualizar stats globales antes de devolverlas
+    const StatsRefreshService = require('../../services/statsRefreshService');
+    try {
+      console.log('🔄 Refreshing global stats before serving to admin...');
+      
+      // Obtener todas las tarjetas para hacer batch refresh
+      const Card = getCardModel();
+      const allCards = await Card.find({}).select('_id');
+      const cardIds = allCards.map(card => card._id);
+      
+      if (cardIds.length > 0) {
+        // Hacer batch refresh de todas las tarjetas para stats globales
+        console.log(`📊 Batch refreshing global stats for ${cardIds.length} cards...`);
+        
+        // Procesar en lotes de 5 para stats globales (más conservador)
+        const batchSize = 5;
+        const batches = [];
+        for (let i = 0; i < cardIds.length; i += batchSize) {
+          batches.push(cardIds.slice(i, i + batchSize));
+        }
+        
+        let processed = 0;
+        for (const batch of batches) {
+          await Promise.all(
+            batch.map(async (cardId) => {
+              try {
+                await StatsRefreshService.refreshCardStats(cardId);
+                processed++;
+              } catch (error) {
+                console.warn(`⚠️ Could not refresh stats for card ${cardId}:`, error.message);
+              }
+            })
+          );
+        }
+        
+        console.log(`✅ Global stats refresh completed for ${processed}/${cardIds.length} cards`);
+      }
+    } catch (refreshError) {
+      console.warn(`⚠️ Warning: Could not refresh global stats:`, refreshError.message);
+      // Continuar con la operación aunque falle el refresh
     }
 
     const Card = getCardModel();
@@ -1161,24 +1201,7 @@ router.get('/card/:cardId/last-movements', authenticateToken, async (req, res) =
   try {
     const { cardId } = req.params;
     
-    // Verificar caché primero
-    const cacheKey = `last_movements_${cardId}`;
-    const cachedData = cacheService.get(cacheKey);
-    
-    if (cachedData) {
-      const responseTime = Date.now() - startTime;
-      console.log(`✅ Last movements served from cache in ${responseTime}ms`);
-      
-      return res.json({
-        success: true,
-        card: cachedData.card,
-        movements: cachedData.movements,
-        count: cachedData.count,
-        cached: true,
-        cacheTimestamp: cachedData.timestamp,
-        responseTime: responseTime
-      });
-    }
+    // CACHÉ REMOVIDO - Consulta directa a la base de datos
     
     const Card = getCardModel();
     const Transaction = getTransactionModel();
@@ -1214,11 +1237,9 @@ router.get('/card/:cardId/last-movements', authenticateToken, async (req, res) =
       }
     };
 
-    // Obtener todas las transacciones activas de la tarjeta
+    // Obtener TODAS las transacciones de la tarjeta (incluyendo eliminadas para admin)
     const allTransactions = await Transaction.find({ 
-      cardId: cardId, 
-      isDeleted: { $ne: true },
-      status: { $ne: 'DELETED' }
+      cardId: cardId
     })
     .select({
       _id: 1,
@@ -1229,7 +1250,8 @@ router.get('/card/:cardId/last-movements', authenticateToken, async (req, res) =
       status: 1,
       operation: 1,
       comentario: 1,
-      createdAt: 1
+      createdAt: 1,
+      isDeleted: 1
     });
 
     // Ordenar por fecha real de la transacción (más reciente primero) y tomar solo las últimas 4
@@ -1263,7 +1285,7 @@ router.get('/card/:cardId/last-movements', authenticateToken, async (req, res) =
       count: lastMovements.length,
       timestamp: new Date().toISOString()
     };
-    cacheService.set(cacheKey, cacheData, 180); // 3 minutos de TTL
+    // CACHÉ REMOVIDO - No se guarda en caché
 
     const responseTime = Date.now() - startTime;
     console.log(`✅ Last movements fetched from database in ${responseTime}ms`);
@@ -1298,11 +1320,11 @@ router.post('/admin/cache/invalidate', authenticateToken, async (req, res) => {
     
     if (cacheKeys && Array.isArray(cacheKeys)) {
       // Invalidar cachés específicos
-      cacheService.invalidateMultiple(cacheKeys);
+      // CACHÉ REMOVIDO - No se invalida caché
       console.log(`✅ Cache invalidated for keys: ${cacheKeys.join(', ')}`);
     } else {
       // Limpiar todo el caché
-      cacheService.clear();
+      // CACHÉ REMOVIDO - No se limpia caché
       console.log('✅ All cache cleared');
     }
 
@@ -1328,19 +1350,9 @@ router.get('/admin/cache/stats', authenticateToken, async (req, res) => {
       });
     }
 
-    const stats = cacheService.getStats();
-    const cacheKeys = Object.values(cacheService.KEYS);
+    // CACHÉ REMOVIDO - No hay estadísticas de caché
+    const stats = { hits: 0, misses: 0, keys: 0 };
     const cacheInfo = {};
-
-    cacheKeys.forEach(key => {
-      const hasKey = cacheService.has(key);
-      const ttl = cacheService.getTtl(key);
-      cacheInfo[key] = {
-        exists: hasKey,
-        ttl: ttl,
-        ttlSeconds: ttl > 0 ? Math.floor(ttl / 1000) : 0
-      };
-    });
 
     res.json({
       success: true,
@@ -1498,18 +1510,89 @@ router.post('/card/:cardId/transactions', authenticateToken, async (req, res) =>
     const transaction = new Transaction(transactionData);
     await transaction.save();
 
-    // Actualizar totales de la tarjeta
-    const cardTransactions = await Transaction.find({ cardId: cardId });
+    // Actualizar estadísticas de la tarjeta directamente
+    const allTransactions = await Transaction.find({ cardId: cardId });
+    const activeTransactions = allTransactions.filter(tx => !tx.isDeleted && tx.status !== 'DELETED');
+    const deletedTransactions = allTransactions.filter(tx => tx.isDeleted || tx.status === 'DELETED');
     
-    card.deposited = cardTransactions
-      .filter(t => t.credit)
-      .reduce((sum, t) => sum + t.amount, 0);
+    // Calcular estadísticas
+    let totalDeposited = 0;   // WALLET_DEPOSIT + OVERRIDE_VIRTUAL_BALANCE
+    let totalRefunded = 0;    // TRANSACTION_REFUND
+    let totalPosted = 0;      // TRANSACTION_APPROVED
+    let totalPending = 0;     // TRANSACTION_PENDING
+    let totalWithdrawal = 0;  // WITHDRAWAL
+    let totalDeletedAmount = 0; // Monto de transacciones eliminadas
     
-    card.posted = cardTransactions
-      .filter(t => !t.credit)
-      .reduce((sum, t) => sum + t.amount, 0);
+    const stats = {
+      totalTransactions: allTransactions.length,
+      byOperation: {
+        TRANSACTION_APPROVED: 0,
+        TRANSACTION_REJECTED: 0,
+        TRANSACTION_REVERSED: 0,
+        TRANSACTION_REFUND: 0,
+        TRANSACTION_PENDING: 0,
+        WALLET_DEPOSIT: 0,
+        OVERRIDE_VIRTUAL_BALANCE: 0
+      },
+      byAmount: {
+        TRANSACTION_APPROVED: 0,
+        TRANSACTION_REJECTED: 0,
+        TRANSACTION_REVERSED: 0,
+        TRANSACTION_REFUND: 0,
+        TRANSACTION_PENDING: 0,
+        WALLET_DEPOSIT: 0,
+        OVERRIDE_VIRTUAL_BALANCE: 0
+      }
+    };
     
-    card.available = card.deposited + card.refunded - card.posted;
+    // Calcular estadísticas de transacciones activas
+    for (const transaction of activeTransactions) {
+      const operation = transaction.operation || 'UNKNOWN';
+      
+      // Contar por operación
+      if (stats.byOperation.hasOwnProperty(operation)) {
+        stats.byOperation[operation]++;
+        stats.byAmount[operation] += transaction.amount;
+      }
+      
+      // Calcular por tipo específico de operación
+      if (operation === 'WALLET_DEPOSIT' || operation === 'OVERRIDE_VIRTUAL_BALANCE') {
+        totalDeposited += transaction.amount;
+      } else if (operation === 'TRANSACTION_REFUND') {
+        totalRefunded += transaction.amount;
+      } else if (operation === 'TRANSACTION_APPROVED') {
+        totalPosted += transaction.amount;
+      } else if (operation === 'TRANSACTION_PENDING') {
+        totalPending += transaction.amount;
+      } else if (operation === 'WITHDRAWAL') {
+        totalWithdrawal += transaction.amount;
+      }
+    }
+    
+    // Calcular monto de transacciones eliminadas
+    for (const transaction of deletedTransactions) {
+      totalDeletedAmount += transaction.amount;
+    }
+    
+    // Actualizar la tarjeta con las estadísticas calculadas
+    card.stats = {
+      money_in: totalDeposited,
+      refund: totalRefunded,
+      posted: totalPosted,
+      reversed: stats.byAmount.TRANSACTION_REVERSED,
+      rejected: stats.byAmount.TRANSACTION_REJECTED,
+      pending: totalPending,
+      withdrawal: totalWithdrawal,
+      available: totalDeposited + totalRefunded - totalPosted - totalPending - totalWithdrawal,
+      total_all_transactions: allTransactions.length,
+      total_deleted_transactions: deletedTransactions.length,
+      deleted_amount: totalDeletedAmount
+    };
+    
+    card.transactionStats = {
+      ...stats,
+      lastUpdated: new Date()
+    };
     
     await card.save();
 
@@ -1557,8 +1640,7 @@ router.post('/card/:cardId/transactions', authenticateToken, async (req, res) =>
 
     // Invalidar caché relacionado
     const lastMovementsCacheKey = `last_movements_${cardId}`;
-    cacheService.invalidate(lastMovementsCacheKey);
-    cacheService.invalidate(cacheService.KEYS.ADMIN_ALL_CARDS);
+    // CACHÉ REMOVIDO - No se invalida caché
 
     res.status(201).json({
       success: true,
