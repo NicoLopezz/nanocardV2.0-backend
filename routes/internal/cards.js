@@ -478,7 +478,15 @@ router.get('/admin/:cardId/stats', authenticateToken, async (req, res) => {
     const Card = getCardModel();
     const Transaction = getTransactionModel();
     
-    // REFRESH AUTOMÁTICO REMOVIDO - Usar stats guardadas en la DB
+    // 🔄 REFRESH AUTOMÁTICO: Actualizar stats antes de devolverlas
+    const StatsRefreshService = require('../../services/statsRefreshService');
+    try {
+      await StatsRefreshService.refreshCardStats(cardId);
+      console.log(`✅ Card stats refreshed for ${cardId} before serving to frontend`);
+    } catch (refreshError) {
+      console.warn(`⚠️ Warning: Could not refresh card stats for ${cardId}:`, refreshError.message);
+      // Continuar con la operación aunque falle el refresh
+    }
 
     // Verificar que la tarjeta existe (incluyendo campos de estadísticas)
     const card = await Card.findById(cardId).select('+stats +transactionStats');
