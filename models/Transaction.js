@@ -31,7 +31,7 @@ const transactionSchema = new mongoose.Schema({
       'WALLET_DEPOSIT',
       'DELETED',
       'Completed', 
-      'Pending',
+      'PENDING',
       'SUCCESS',
       'FAILED'
     ], 
@@ -61,12 +61,32 @@ const transactionSchema = new mongoose.Schema({
   mercuryCategory: String,
   credit: { type: Boolean, default: false },
   comentario: String,
+  originalMovementId: String, // ID del movimiento original en old_db para depósitos manuales
+  
+  // Campos específicos de OVERRIDE_VIRTUAL_BALANCE
+  bill_amount: Number,
+  bill_currency: String,
+  transaction_amount: Number,
+  transaction_currency: String,
+  exchange_rate: Number,
+  merchant_name: String,
+  original_balance: Number,
+  new_balance: Number,
+  decline_reason: mongoose.Schema.Types.Mixed, // Puede ser string o objeto complejo
+  
+  // Campos contables para WALLET_DEPOSIT
+  gross_amount: Number,        // Monto original de la API (antes de comisión)
+  commission_rate: Number,     // Tasa de comisión aplicada (ej: 0.003 para 0.3%)
+  commission_amount: Number,   // Monto de la comisión (gross_amount * commission_rate)
+  net_amount: Number,          // Monto neto después de comisión (gross_amount - commission_amount)
   
   // SISTEMA DE VERSIONADO
   version: { type: Number, default: 1 },
   isDeleted: { type: Boolean, default: false },
   deletedAt: Date,
   deletedBy: String, // userId que la eliminó
+  restoredAt: Date,
+  restoredBy: String, // userId que la restauró
   
   // Historial de cambios
   history: [{
@@ -106,4 +126,4 @@ const getTransactionModel = () => {
   return databases.transactions.connection.model('Transaction', transactionSchema);
 };
 
-module.exports = { getTransactionModel };
+module.exports = { getTransactionModel, transactionSchema };

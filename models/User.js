@@ -28,12 +28,15 @@ const userSchema = new mongoose.Schema({
   // KPIs que realmente importan - RESUMEN RÁPIDO
   stats: {
     totalTransactions: { type: Number, default: 0 },
-    totalDeposited: { type: Number, default: 0 },       // Money In
-    totalPosted: { type: Number, default: 0 },          // Posted
-    totalPending: { type: Number, default: 0 },         // Pending
-    totalAvailable: { type: Number, default: 0 },       // Available
+    totalDeposited: { type: Number, default: 0 },       // Solo WALLET_DEPOSIT
+    totalRefunded: { type: Number, default: 0 },        // Solo TRANSACTION_REFUND
+    totalPosted: { type: Number, default: 0 },          // Solo TRANSACTION_APPROVED
+    totalPending: { type: Number, default: 0 },         // Solo TRANSACTION_PENDING
+    totalAvailable: { type: Number, default: 0 },       // deposited + refunded - posted - pending
     lastLogin: Date,
-    loginCount: { type: Number, default: 0 }
+    loginCount: { type: Number, default: 0 },
+    lastSync: Date,  // Última sincronización de transacciones
+    lastSyncSource: { type: String, default: 'manual' } // 'manual', 'automatic', 'api'
   },
   
   // Timestamps
@@ -47,4 +50,4 @@ const getUserModel = () => {
   return databases.users.connection.model('User', userSchema);
 };
 
-module.exports = { getUserModel };
+module.exports = { getUserModel, userSchema };

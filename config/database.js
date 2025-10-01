@@ -21,6 +21,10 @@ const databases = {
   reconciliations: {
     uri: config.RECONCILIATIONS_DB_URI,
     connection: null
+  },
+  synclog: {
+    uri: config.SYNCLOG_DB_URI,
+    connection: null
   }
 };
 

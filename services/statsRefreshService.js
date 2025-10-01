@@ -27,6 +27,7 @@ class StatsRefreshService {
       // Actualizar montos según la operación
       switch (operation) {
         case 'WALLET_DEPOSIT':
+        case 'OVERRIDE_VIRTUAL_BALANCE':
           user.stats.totalDeposited += (amount * multiplier);
           break;
         case 'TRANSACTION_REFUND':
@@ -37,6 +38,17 @@ class StatsRefreshService {
           break;
         case 'TRANSACTION_PENDING':
           user.stats.totalPending += (amount * multiplier);
+          break;
+        case 'WITHDRAWAL':
+          // WITHDRAWAL reduce el available (dinero que sale)
+          user.stats.totalAvailable -= (amount * multiplier);
+          break;
+        case 'TRANSACTION_REVERSED':
+          // TRANSACTION_REVERSED reduce el posted
+          user.stats.totalPosted -= (amount * multiplier);
+          break;
+        case 'TRANSACTION_REJECTED':
+          // TRANSACTION_REJECTED no afecta balances
           break;
       }
       
@@ -117,6 +129,7 @@ class StatsRefreshService {
         
         switch (operation) {
           case 'WALLET_DEPOSIT':
+          case 'OVERRIDE_VIRTUAL_BALANCE':
             user.stats.totalDeposited += amount;
             break;
           case 'TRANSACTION_REFUND':
@@ -127,6 +140,17 @@ class StatsRefreshService {
             break;
           case 'TRANSACTION_PENDING':
             user.stats.totalPending += amount;
+            break;
+          case 'WITHDRAWAL':
+            // WITHDRAWAL reduce el available
+            user.stats.totalAvailable -= amount;
+            break;
+          case 'TRANSACTION_REVERSED':
+            // TRANSACTION_REVERSED reduce el posted
+            user.stats.totalPosted -= amount;
+            break;
+          case 'TRANSACTION_REJECTED':
+            // TRANSACTION_REJECTED no afecta balances
             break;
         }
       }

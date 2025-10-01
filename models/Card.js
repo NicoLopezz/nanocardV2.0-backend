@@ -10,12 +10,22 @@ const cardSchema = new mongoose.Schema({
   last4: { type: String, required: true }, // last4 de CryptoMate
   type: { type: String, default: 'Virtual' }, // type de CryptoMate
   
-  // Estados financieros (inicializados en 0, se actualizarán con transacciones)
-  deposited: { type: Number, default: 0 },    // Solo depósitos reales (WALLET_DEPOSIT)
-  refunded: { type: Number, default: 0 },     // Solo reembolsos (TRANSACTION_REFUND)
-  posted: { type: Number, default: 0 },       // Solo gastos (TRANSACTION_APPROVED)
-  pending: { type: Number, default: 0 },
-  available: { type: Number, default: 0 },    // deposited + refunded - posted
+  // Estados financieros organizados en stats
+  stats: {
+    money_in: { type: Number, default: 0 },     // WALLET_DEPOSIT + OVERRIDE_VIRTUAL_BALANCE
+    refund: { type: Number, default: 0 },       // TRANSACTION_REFUND
+    posted: { type: Number, default: 0 },       // TRANSACTION_APPROVED - TRANSACTION_REVERSED
+    reversed: { type: Number, default: 0 },     // TRANSACTION_REVERSED
+    rejected: { type: Number, default: 0 },     // TRANSACTION_REJECTED
+    pending: { type: Number, default: 0 },      // TRANSACTION_PENDING
+    withdrawal: { type: Number, default: 0 },   // WITHDRAWAL
+    available: { type: Number, default: 0 },    // money_in + refund - posted - pending - withdrawal
+    
+    // Campos para auditoría (transacciones eliminadas)
+    total_all_transactions: { type: Number, default: 0 },     // Total incluyendo eliminadas
+    total_deleted_transactions: { type: Number, default: 0 }, // Solo eliminadas
+    deleted_amount: { type: Number, default: 0 }              // Monto de transacciones eliminadas
+  },
   
   // Balance real de CryptoMate (para comparación)
   cryptoMateBalance: {
@@ -33,7 +43,8 @@ const cardSchema = new mongoose.Schema({
       TRANSACTION_REVERSED: { type: Number, default: 0 },
       TRANSACTION_REFUND: { type: Number, default: 0 },
       WALLET_DEPOSIT: { type: Number, default: 0 },
-      OVERRIDE_VIRTUAL_BALANCE: { type: Number, default: 0 }
+      OVERRIDE_VIRTUAL_BALANCE: { type: Number, default: 0 },
+      WITHDRAWAL: { type: Number, default: 0 }
     },
     byAmount: {
       TRANSACTION_APPROVED: { type: Number, default: 0 },
@@ -41,7 +52,8 @@ const cardSchema = new mongoose.Schema({
       TRANSACTION_REVERSED: { type: Number, default: 0 },
       TRANSACTION_REFUND: { type: Number, default: 0 },
       WALLET_DEPOSIT: { type: Number, default: 0 },
-      OVERRIDE_VIRTUAL_BALANCE: { type: Number, default: 0 }
+      OVERRIDE_VIRTUAL_BALANCE: { type: Number, default: 0 },
+      WITHDRAWAL: { type: Number, default: 0 }
     },
     lastUpdated: { type: Date, default: Date.now }
   },
@@ -83,4 +95,4 @@ const getCardModel = () => {
   return databases.cards.connection.model('Card', cardSchema);
 };
 
-module.exports = { getCardModel };
+module.exports = { getCardModel, cardSchema };

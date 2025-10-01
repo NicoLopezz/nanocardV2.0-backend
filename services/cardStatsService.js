@@ -26,7 +26,8 @@ const recalculateCardStats = async (cardId) => {
         TRANSACTION_REFUND: 0,
         TRANSACTION_PENDING: 0,
         WALLET_DEPOSIT: 0,
-        OVERRIDE_VIRTUAL_BALANCE: 0
+        OVERRIDE_VIRTUAL_BALANCE: 0,
+        WITHDRAWAL: 0
       },
       byAmount: {
         TRANSACTION_APPROVED: 0,
@@ -35,15 +36,19 @@ const recalculateCardStats = async (cardId) => {
         TRANSACTION_REFUND: 0,
         TRANSACTION_PENDING: 0,
         WALLET_DEPOSIT: 0,
-        OVERRIDE_VIRTUAL_BALANCE: 0
+        OVERRIDE_VIRTUAL_BALANCE: 0,
+        WITHDRAWAL: 0
       }
     };
     
     // Calcular estadísticas
-    let totalDeposited = 0;   // Solo WALLET_DEPOSIT
-    let totalRefunded = 0;    // Solo TRANSACTION_REFUND
-    let totalPosted = 0;      // Solo TRANSACTION_APPROVED
-    let totalPending = 0;     // Solo TRANSACTION_PENDING
+    let totalDeposited = 0;   // WALLET_DEPOSIT + OVERRIDE_VIRTUAL_BALANCE
+    let totalRefunded = 0;    // TRANSACTION_REFUND
+    let totalPosted = 0;      // TRANSACTION_APPROVED
+    let totalPending = 0;     // TRANSACTION_PENDING
+    let totalWithdrawal = 0;  // WITHDRAWAL
+    let totalReversed = 0;    // TRANSACTION_REVERSED
+    let totalRejected = 0;    // TRANSACTION_REJECTED
     
     for (const transaction of transactions) {
       const operation = transaction.operation || 'UNKNOWN';
@@ -55,16 +60,30 @@ const recalculateCardStats = async (cardId) => {
       }
       
       // Calcular por tipo específico de operación
-      if (operation === 'WALLET_DEPOSIT') {
-        totalDeposited += transaction.amount;
-      } else if (operation === 'TRANSACTION_REFUND') {
-        totalRefunded += transaction.amount;
-      } else if (operation === 'TRANSACTION_APPROVED') {
-        totalPosted += transaction.amount;
-      } else if (operation === 'TRANSACTION_PENDING') {
-        totalPending += transaction.amount;
+      switch (operation) {
+        case 'WALLET_DEPOSIT':
+        case 'OVERRIDE_VIRTUAL_BALANCE':
+          totalDeposited += transaction.amount;
+          break;
+        case 'TRANSACTION_REFUND':
+          totalRefunded += transaction.amount;
+          break;
+        case 'TRANSACTION_APPROVED':
+          totalPosted += transaction.amount;
+          break;
+        case 'TRANSACTION_PENDING':
+          totalPending += transaction.amount;
+          break;
+        case 'WITHDRAWAL':
+          totalWithdrawal += transaction.amount;
+          break;
+        case 'TRANSACTION_REVERSED':
+          totalReversed += transaction.amount;
+          break;
+        case 'TRANSACTION_REJECTED':
+          totalRejected += transaction.amount;
+          break;
       }
-      // Otras operaciones no afectan los balances principales
     }
     
     // Actualizar la tarjeta
@@ -72,7 +91,22 @@ const recalculateCardStats = async (cardId) => {
     card.refunded = totalRefunded;
     card.posted = totalPosted;
     card.pending = totalPending;
-    card.available = totalDeposited - totalPosted - totalPending;
+    card.available = totalDeposited + totalRefunded - totalPosted - totalPending - totalWithdrawal;
+    
+    // Actualizar stats adicionales
+    card.stats = {
+      money_in: totalDeposited,
+      refund: totalRefunded,
+      posted: totalPosted,
+      reversed: totalReversed,
+      rejected: totalRejected,
+      pending: totalPending,
+      withdrawal: totalWithdrawal,
+      available: card.available,
+      total_all_transactions: transactions.length,
+      total_deleted_transactions: 0, // Se calculará por separado si es necesario
+      deleted_amount: 0
+    };
     
     card.transactionStats = {
       ...stats,
@@ -87,6 +121,9 @@ const recalculateCardStats = async (cardId) => {
     console.log(`   - Refunded: $${totalRefunded}`);
     console.log(`   - Posted: $${totalPosted}`);
     console.log(`   - Pending: $${totalPending}`);
+    console.log(`   - Withdrawal: $${totalWithdrawal}`);
+    console.log(`   - Reversed: $${totalReversed}`);
+    console.log(`   - Rejected: $${totalRejected}`);
     console.log(`   - Available: $${card.available}`);
     console.log(`   - By operation:`, stats.byOperation);
     

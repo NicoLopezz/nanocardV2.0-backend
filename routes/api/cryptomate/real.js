@@ -128,23 +128,40 @@ const convertCryptoMateTransactionToNano = async (cryptoTransaction, cardId, use
     userName: userName, // NOMBRE DEL TITULAR
     cardName: cardName, // NOMBRE/DESCRIPCIÓN DE LA TARJETA
             name: cryptoTransaction.operation === 'OVERRIDE_VIRTUAL_BALANCE' 
-              ? 'DEPOSIT' 
+              ? (cryptoTransaction.merchant_name || 'DEPOSIT')
               : cryptoTransaction.merchant_name || 'Unknown Transaction',
     amount: cryptoTransaction.operation === 'OVERRIDE_VIRTUAL_BALANCE' 
-      ? cryptoTransaction.new_balance || 0 
-      : cryptoTransaction.bill_amount || cryptoTransaction.transaction_amount || 0,
+      ? Math.round((cryptoTransaction.new_balance - cryptoTransaction.original_balance) || 0)
+      : cryptoTransaction.operation === 'WALLET_DEPOSIT' 
+        ? Math.round(((cryptoTransaction.bill_amount || 0) - ((cryptoTransaction.bill_amount || 0) * (config.WALLET_DEPOSIT_COMMISSION_RATE || 0.003))))
+        : cryptoTransaction.bill_amount || cryptoTransaction.transaction_amount || 0,
     date: date.toLocaleDateString('es-AR'),
     time: date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
     status: cryptoTransaction.status || 'Completed',
-    operation: cryptoTransaction.operation === 'OVERRIDE_VIRTUAL_BALANCE' 
-      ? 'WALLET_DEPOSIT' 
-      : cryptoTransaction.operation,
+    operation: cryptoTransaction.operation, // Mantener el operation original
     city: cryptoTransaction.city,
     country: cryptoTransaction.country,
     mcc_category: cryptoTransaction.mcc_category,
     mercuryCategory: cryptoTransaction.mercuryCategory,
-    credit: cryptoTransaction.operation === 'WALLET_DEPOSIT' || cryptoTransaction.operation === 'TRANSACTION_REFUND' || cryptoTransaction.operation === 'OVERRIDE_VIRTUAL_BALANCE',
+    credit: cryptoTransaction.operation === 'WALLET_DEPOSIT' || cryptoTransaction.operation === 'TRANSACTION_REFUND' || cryptoTransaction.operation === 'OVERRIDE_VIRTUAL_BALANCE' || cryptoTransaction.operation === 'TRANSACTION_REVERSED',
     comentario: '', // Vacío por defecto - sin comentarios automáticos
+    
+    // Campos específicos de OVERRIDE_VIRTUAL_BALANCE y TRANSACTION_REVERSED
+    bill_amount: cryptoTransaction.bill_amount,
+    bill_currency: cryptoTransaction.bill_currency,
+    transaction_amount: cryptoTransaction.transaction_amount,
+    transaction_currency: cryptoTransaction.transaction_currency,
+    exchange_rate: cryptoTransaction.exchange_rate,
+    merchant_name: cryptoTransaction.merchant_name,
+    original_balance: cryptoTransaction.original_balance,
+    new_balance: cryptoTransaction.new_balance,
+    decline_reason: cryptoTransaction.decline_reason,
+    
+    // Campos contables para WALLET_DEPOSIT (aplicar comisión)
+    gross_amount: cryptoTransaction.operation === 'WALLET_DEPOSIT' ? (cryptoTransaction.bill_amount || 0) : undefined,
+    commission_rate: cryptoTransaction.operation === 'WALLET_DEPOSIT' ? (config.WALLET_DEPOSIT_COMMISSION_RATE || 0.003) : undefined,
+    commission_amount: cryptoTransaction.operation === 'WALLET_DEPOSIT' ? Math.round(((cryptoTransaction.bill_amount || 0) * (config.WALLET_DEPOSIT_COMMISSION_RATE || 0.003))) : undefined,
+    net_amount: cryptoTransaction.operation === 'WALLET_DEPOSIT' ? Math.round(((cryptoTransaction.bill_amount || 0) - ((cryptoTransaction.bill_amount || 0) * (config.WALLET_DEPOSIT_COMMISSION_RATE || 0.003)))) : undefined,
     version: 1,
     history: [{
       version: 1,
@@ -366,9 +383,12 @@ router.post('/import-transactions/:cardId', async (req, res) => {
               importedTransactions++;
               console.log(`✅ Imported transaction: ${nanoTransaction._id} - ${nanoTransaction.name} (${nanoTransaction.operation}) by ${nanoTransaction.userName}`);
             } else {
-              // Actualizar transacción existente
-              Object.assign(existingTransaction, nanoTransaction);
-              await existingTransaction.save();
+              // Actualizar transacción existente con todos los campos nuevos
+              await Transaction.findByIdAndUpdate(nanoTransaction._id, nanoTransaction, { 
+                new: true, 
+                upsert: false,
+                runValidators: true
+              });
               updatedTransactions++;
               console.log(`🔄 Updated transaction: ${nanoTransaction._id} - ${nanoTransaction.name} (${nanoTransaction.operation}) by ${nanoTransaction.userName}`);
             }
@@ -418,7 +438,7 @@ router.post('/import-transactions/:cardId', async (req, res) => {
       }
     }
     
-    // Actualizar KPIs del usuario Y campos financieros de la tarjeta
+    // Actualizar KPIs del usuario Y stats de la tarjeta
     try {
       const userId = card ? card.userId : cardId; // Usar cardId como userId si no se encuentra la tarjeta
       const user = await User.findById(userId);
@@ -428,37 +448,100 @@ router.post('/import-transactions/:cardId', async (req, res) => {
         
         user.stats.totalTransactions = userTransactions.length;
         user.stats.totalDeposited = userTransactions
-          .filter(t => t.credit)
+          .filter(t => t.operation === 'WALLET_DEPOSIT' || t.operation === 'OVERRIDE_VIRTUAL_BALANCE')
+          .reduce((sum, t) => sum + t.amount, 0);
+        user.stats.totalRefunded = userTransactions
+          .filter(t => t.operation === 'TRANSACTION_REFUND')
           .reduce((sum, t) => sum + t.amount, 0);
         user.stats.totalPosted = userTransactions
-          .filter(t => !t.credit)
+          .filter(t => t.operation === 'TRANSACTION_APPROVED')
           .reduce((sum, t) => sum + t.amount, 0);
-        user.stats.totalAvailable = user.stats.totalDeposited - user.stats.totalPosted;
+        user.stats.totalReversed = userTransactions
+          .filter(t => t.operation === 'TRANSACTION_REVERSED')
+          .reduce((sum, t) => sum + t.amount, 0);
+        user.stats.totalPending = userTransactions
+          .filter(t => t.operation === 'TRANSACTION_PENDING')
+          .reduce((sum, t) => sum + t.amount, 0);
+        user.stats.totalAvailable = user.stats.totalDeposited + user.stats.totalRefunded + user.stats.totalReversed - user.stats.totalPosted - user.stats.totalPending;
+        
+        // Registrar última actualización del usuario
+        user.updatedAt = new Date();
+        user.stats.lastSync = new Date();
+        user.stats.lastSyncSource = 'api';
         
         await user.save();
         console.log(`✅ Updated KPIs for user: ${card.userId}`);
+        console.log(`   - Last updated: ${user.updatedAt}`);
+        console.log(`   - Last sync: ${user.stats.lastSync}`);
+        console.log(`   - Sync source: ${user.stats.lastSyncSource}`);
       }
       
-      // Actualizar campos financieros de la tarjeta específica
-      const cardTransactions = await Transaction.find({ cardId: cardId });
-      
-      card.deposited = cardTransactions
-        .filter(t => t.credit)
-        .reduce((sum, t) => sum + t.amount, 0);
-      card.posted = cardTransactions
-        .filter(t => !t.credit)
-        .reduce((sum, t) => sum + t.amount, 0);
-      card.pending = 0; // Por ahora 0, se puede calcular si hay transacciones pendientes
-      card.available = card.deposited - card.posted;
-      
-      await card.save();
-      console.log(`✅ Updated financial fields for card: ${cardId}`);
-      console.log(`   - Deposited: $${card.deposited}`);
-      console.log(`   - Posted: $${card.posted}`);
-      console.log(`   - Available: $${card.available}`);
+      // Actualizar stats de la tarjeta específica usando la nueva estructura
+      if (card) {
+        const cardTransactions = await Transaction.find({ cardId: cardId });
+        
+        // Calcular stats con la fórmula correcta
+        let money_in = 0;
+        let refund = 0;
+        let posted_approved = 0;
+        let reversed = 0;
+        let rejected = 0;
+        let pending = 0;
+        
+        cardTransactions.forEach(transaction => {
+          const amount = transaction.amount || 0;
+          
+          switch (transaction.operation) {
+            case 'WALLET_DEPOSIT':
+            case 'OVERRIDE_VIRTUAL_BALANCE':
+              money_in += amount;
+              break;
+            case 'TRANSACTION_REFUND':
+              refund += amount;
+              break;
+            case 'TRANSACTION_APPROVED':
+              posted_approved += amount;
+              break;
+            case 'TRANSACTION_REVERSED':
+              reversed += amount;
+              break;
+            case 'TRANSACTION_REJECTED':
+              rejected += amount;
+              break;
+            case 'TRANSACTION_PENDING':
+              pending += amount;
+              break;
+          }
+        });
+        
+        // Actualizar el campo stats de la card con la nueva estructura
+        card.stats = {
+          money_in: money_in,
+          refund: refund,
+          posted: posted_approved, // Solo TRANSACTION_APPROVED (sin restar reversed)
+          reversed: reversed,
+          rejected: rejected,
+          pending: pending,
+          available: money_in + refund + reversed - posted_approved - pending // Fórmula correcta
+        };
+        
+        // Registrar última actualización de la card
+        card.updatedAt = new Date();
+        
+        await card.save();
+        console.log(`✅ Updated stats for card: ${cardId}`);
+        console.log(`   - money_in: $${card.stats.money_in}`);
+        console.log(`   - refund: $${card.stats.refund}`);
+        console.log(`   - posted: $${card.stats.posted}`);
+        console.log(`   - reversed: $${card.stats.reversed}`);
+        console.log(`   - rejected: $${card.stats.rejected}`);
+        console.log(`   - pending: $${card.stats.pending}`);
+        console.log(`   - available: $${card.stats.available}`);
+        console.log(`   - Last updated: ${card.updatedAt}`);
+      }
       
     } catch (kpiError) {
-      console.error(`❌ Error updating user KPIs and card balances:`, kpiError);
+      console.error(`❌ Error updating user KPIs and card stats:`, kpiError);
     }
     
     // Sincronizar balance con CryptoMate
@@ -569,6 +652,7 @@ router.post('/import-real-data', async (req, res) => {
             stats: {
               totalTransactions: 0,
               totalDeposited: 0,
+              totalRefunded: 0,
               totalPosted: 0,
               totalPending: 0,
               totalAvailable: 0,
@@ -652,6 +736,182 @@ router.post('/import-real-data', async (req, res) => {
     res.status(500).json({ 
       success: false, 
       error: 'Real import failed', 
+      message: error.message 
+    });
+  }
+});
+
+// Función para obtener el saldo de la wallet central
+const fetchCentralWalletBalance = async () => {
+  const fetch = require('node-fetch');
+  
+  try {
+    console.log('🚀 Fetching central wallet balance from CryptoMate...');
+    
+    const response = await fetch('https://api.cryptomate.me/cards/account', {
+      method: 'GET',
+      headers: {
+        'x-api-key': 'api-45f14849-914c-420e-a788-2e969d92bd5d',
+        'Content-Type': 'application/json',
+        'Cookie': 'JSESSIONID=F283A13AE1BBE5C0D2081C65FE37227F'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    console.log(`✅ Fetched central wallet balance: $${data.available_balance}`);
+    return data;
+  } catch (error) {
+    console.error('❌ Error fetching central wallet balance:', error);
+    throw error;
+  }
+};
+
+// Endpoint para obtener el saldo de la wallet central con historial automático
+router.get('/central-wallet-balance', async (req, res) => {
+  try {
+    console.log('🚀 Fetching central wallet balance with automatic history...');
+    
+    // 1. Consultar saldo actual de Cryptomate
+    const currentData = await fetchCentralWalletBalance();
+    const currentBalance = currentData.available_balance;
+    
+    // 2. Obtener el último registro del historial (para saber el "previous")
+    const { getCentralWalletHistoryModel } = require('../../../models/CentralWalletHistory');
+    const CentralWalletHistory = getCentralWalletHistoryModel();
+    
+    const lastRecord = await CentralWalletHistory.findOne()
+      .sort({ consultedAt: -1 });
+    
+    const previousBalance = lastRecord ? lastRecord.currentBalance : 0;
+    const difference = currentBalance - previousBalance;
+    
+    let historyEntry;
+    
+    // 3. Solo guardar si hay cambio real en el saldo
+    if (Math.abs(difference) > 0.01) { // Tolerancia de 1 centavo
+      console.log(`📊 Balance changed: $${previousBalance} → $${currentBalance} (${difference > 0 ? '+' : ''}$${difference.toFixed(2)})`);
+      
+      historyEntry = new CentralWalletHistory({
+        previousBalance: previousBalance,
+        currentBalance: currentBalance,
+        difference: difference,
+        blockchain: currentData.blockchain,
+        walletAddress: currentData.wallet_address,
+        tokens: currentData.tokens,
+        consultedBy: 'system',
+        source: 'api',
+        userAgent: req.headers['user-agent'] || 'API'
+      });
+      
+      await historyEntry.save();
+    } else {
+      console.log(`📊 No balance change detected: $${currentBalance} (same as last record)`);
+      historyEntry = lastRecord; // Usar el último registro existente
+    }
+    
+    console.log(`✅ Central wallet balance updated and saved to history`);
+    console.log(`   - Previous: $${previousBalance}`);
+    console.log(`   - Current: $${currentBalance}`);
+    console.log(`   - Difference: $${difference}`);
+    
+    res.json({
+      success: true,
+      message: 'Central wallet balance retrieved successfully',
+      data: {
+        previous_balance: previousBalance,
+        current_balance: currentBalance,
+        difference: difference,
+        blockchain: currentData.blockchain,
+        wallet_address: currentData.wallet_address,
+        compromised_balance: currentData.compromised_balance,
+        tokens: currentData.tokens,
+        history_id: historyEntry._id,
+        consulted_at: new Date()
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Central wallet balance error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to fetch central wallet balance', 
+      message: error.message 
+    });
+  }
+});
+
+// Endpoint para obtener el historial de la wallet central
+router.get('/central-wallet-history', async (req, res) => {
+  try {
+    const { limit = 50, page = 1 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    console.log('🚀 Fetching central wallet history...');
+    
+    const { getCentralWalletHistoryModel } = require('../../../models/CentralWalletHistory');
+    const CentralWalletHistory = getCentralWalletHistoryModel();
+    
+    // Obtener historial con paginación
+    const history = await CentralWalletHistory.find()
+      .sort({ consultedAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .select('_id previousBalance currentBalance difference blockchain walletAddress consultedBy consultedAt');
+    
+    // Contar total de registros
+    const totalRecords = await CentralWalletHistory.countDocuments();
+    
+    // Estadísticas del historial
+    const stats = await CentralWalletHistory.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalRecords: { $sum: 1 },
+          totalDifference: { $sum: '$difference' },
+          avgDifference: { $avg: '$difference' },
+          maxDifference: { $max: '$difference' },
+          minDifference: { $min: '$difference' },
+          lastBalance: { $last: '$currentBalance' },
+          firstBalance: { $first: '$currentBalance' }
+        }
+      }
+    ]);
+    
+    console.log(`✅ Central wallet history fetched: ${history.length} records`);
+    
+    res.json({
+      success: true,
+      message: 'Central wallet history retrieved successfully',
+      data: {
+        history: history,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total: totalRecords,
+          pages: Math.ceil(totalRecords / parseInt(limit))
+        },
+        stats: stats[0] || {
+          totalRecords: 0,
+          totalDifference: 0,
+          avgDifference: 0,
+          maxDifference: 0,
+          minDifference: 0,
+          lastBalance: 0,
+          firstBalance: 0
+        },
+        lastUpdated: new Date()
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Central wallet history error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to fetch central wallet history', 
       message: error.message 
     });
   }

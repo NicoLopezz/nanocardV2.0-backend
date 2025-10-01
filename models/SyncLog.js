@@ -36,7 +36,7 @@ syncLogSchema.pre('save', function(next) {
 
 const getSyncLogModel = () => {
   const { databases } = require('../config/database');
-  return databases.transactions.connection.model('SyncLog', syncLogSchema);
+  return databases.synclog.connection.model('SyncLog', syncLogSchema);
 };
 
 module.exports = { getSyncLogModel };
