@@ -100,7 +100,7 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
-// Endpoint para obtener TODAS las tarjetas (solo para administradores) - OPTIMIZADO CON CACHÉ
+// Endpoint optimizado para obtener tarjetas con paginación (solo stats, sin transacciones)
 router.get('/admin/all', authenticateToken, async (req, res) => {
   const startTime = Date.now();
   
@@ -113,121 +113,87 @@ router.get('/admin/all', authenticateToken, async (req, res) => {
       });
     }
 
-    // REFRESH AUTOMÁTICO REMOVIDO - Usar stats guardadas en la DB
+    // Parámetros de paginación y filtros
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const sortBy = req.query.sortBy || 'updatedAt';
+    const sortOrder = req.query.sortOrder === 'asc' ? 1 : -1;
+    const search = req.query.search || '';
+    const status = req.query.status || '';
+    const supplier = req.query.supplier || '';
 
-    // CACHÉ REMOVIDO - Consulta directa a la base de datos
+    // Validar límites por seguridad
+    const maxLimit = 100;
+    const finalLimit = Math.min(limit, maxLimit);
+    const skip = (page - 1) * finalLimit;
 
     const Card = getCardModel();
     const User = getUserModel();
-    const Transaction = getTransactionModel();
 
-    // Obtener todas las tarjetas con campos específicos (incluyendo estadísticas)
-    const cards = await Card.find({}).select('_id name last4 status userId supplier limits createdAt updatedAt transactionStats stats');
+    // Construir query de filtros
+    let cardQuery = {};
+    
+    if (search) {
+      cardQuery.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { last4: { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    if (status) {
+      cardQuery.status = status;
+    }
+    
+    if (supplier) {
+      cardQuery.supplier = supplier;
+    }
 
-    // Obtener todos los usuarios de una vez (optimización)
-    const userIds = [...new Set(cards.map(card => card.userId ? card.userId.toString() : null).filter(Boolean))];
+    // 1. Obtener total de tarjetas para paginación
+    const totalCards = await Card.countDocuments(cardQuery);
+    const totalPages = Math.ceil(totalCards / finalLimit);
+
+    // 2. Obtener tarjetas paginadas (SOLO stats, SIN transacciones)
+    const cards = await Card.find(cardQuery)
+      .select('_id name last4 status userId supplier limits createdAt updatedAt stats')
+      .sort({ [sortBy]: sortOrder })
+      .skip(skip)
+      .limit(finalLimit)
+      .lean(); // Usar lean() para mejor rendimiento
+
+    if (cards.length === 0) {
+      return res.json({
+        success: true,
+        cards: [],
+        pagination: {
+          page,
+          limit: finalLimit,
+          total: totalCards,
+          totalPages,
+          hasNext: false,
+          hasPrev: false
+        },
+        responseTime: Date.now() - startTime
+      });
+    }
+
+    // 3. Obtener usuarios solo para las tarjetas de la página actual
+    const userIds = [...new Set(cards.map(card => card.userId).filter(Boolean))];
     const users = await User.find(
       { _id: { $in: userIds } },
       { _id: 1, username: 1, profile: 1 }
-    );
+    ).lean();
 
-    // Crear mapa de usuarios para acceso rápido
+    // 4. Crear mapa de usuarios para acceso rápido
     const userMap = new Map();
     users.forEach(user => {
       userMap.set(user._id.toString(), user);
     });
-    
-    // Obtener las últimas 4 transacciones para cada tarjeta (ordenadas por fecha REAL de la transacción)
-    const cardIds = cards.map(card => card._id.toString());
-    
-    // Crear una fecha de referencia para convertir las fechas string a Date objects
-    const parseTransactionDate = (dateStr, timeStr) => {
-      try {
-        const [day, month, year] = (dateStr || '').split('/');
-        const [timePart, rawPeriod] = (timeStr || '').split(' ');
-        let [hours, minutes] = (timePart || '00:00').split(':');
-        const period = (rawPeriod || '').toLowerCase();
-        hours = parseInt(hours);
-        minutes = parseInt(minutes);
-        if ((period === 'p. m.' || period === 'pm' || period === 'p.m.' || period === 'p') && hours !== 12) hours += 12;
-        if ((period === 'a. m.' || period === 'am' || period === 'a.m.' || period === 'a') && hours === 12) hours = 0;
-        return new Date(parseInt(year), parseInt(month) - 1, parseInt(day), hours, minutes);
-      } catch {
-        return new Date();
-      }
-    };
-    
-    // Usar conexión directa en lugar del modelo para asegurar que use la DB correcta
-    const { databases } = require('../../config/database');
-    const transactionsDb = databases.transactions.connection.useDb('dev_transactions');
-    
-    const allTransactions = await transactionsDb.collection('transactions').find({ 
-      cardId: { $in: cardIds },
-      isDeleted: { $ne: true },
-      status: { $ne: 'DELETED' }
-    })
-    .project({
-      _id: 1,
-      cardId: 1,
-      name: 1,
-      amount: 1,
-      date: 1,
-      time: 1,
-      status: 1,
-      operation: 1,
-      comentario: 1,
-      createdAt: 1
-    })
-    .toArray();
-    
-    // Crear mapa de transacciones agrupadas por cardId y ordenadas por fecha REAL
-    const transactionsByCard = new Map();
-    
-    // Primero, agregar todas las transacciones al mapa
-    allTransactions.forEach(transaction => {
-      const cardId = transaction.cardId;
-      if (!transactionsByCard.has(cardId)) {
-        transactionsByCard.set(cardId, []);
-      }
-      transactionsByCard.get(cardId).push(transaction);
-    });
-    
-    // Luego, ordenar cada grupo por fecha real (más reciente primero) y tomar solo las últimas 4
-    transactionsByCard.forEach((transactions, cardId) => {
-      const sortedTransactions = transactions
-        .map(tx => ({
-          ...tx,
-          realDate: parseTransactionDate(tx.date, tx.time)
-        }))
-        .sort((a, b) => b.realDate - a.realDate)
-        .slice(0, 4);
 
-      const cleanTransactions = sortedTransactions.map(tx => {
-        return {
-          _id: tx._id,
-          name: tx.name,
-          amount: typeof tx.amount === 'number' ? tx.amount : parseFloat(tx.amount) || 0,
-          date: tx.date,
-          time: tx.time,
-          status: tx.status,
-          operation: tx.operation,
-          comentario: tx.comentario,
-          createdAt: tx.createdAt
-        };
-      }).filter(tx => tx && tx._id && tx.name !== undefined);
-
-      transactionsByCard.set(cardId, cleanTransactions);
-    });
-    
-    // No calcular estadísticas dinámicamente - usar datos guardados en la DB
-
-    // Enriquecer tarjetas con información del usuario, transacciones y estadísticas de la DB
+    // 5. Enriquecer tarjetas con información del usuario (SIN transacciones)
     const enrichedCards = cards.map(card => {
       const userIdString = card.userId ? card.userId.toString() : null;
       const user = userIdString ? userMap.get(userIdString) : null;
-      const lastTransactions = transactionsByCard.get(card._id.toString()) || [];
       
-      // Usar estadísticas guardadas en la DB (usar stats directamente de la DB)
       return {
         _id: card._id,
         name: card.name,
@@ -251,32 +217,147 @@ router.get('/admin/all', authenticateToken, async (req, res) => {
         supplier: card.supplier || 'Nano',
         limits: card.limits,
         createdAt: card.createdAt,
-        updatedAt: card.updatedAt,
-        transactions: lastTransactions
+        updatedAt: card.updatedAt
+        // SIN transacciones - se obtienen por endpoint separado
       };
     });
 
-    // Guardar en caché
-    const cacheData = {
-      cards: enrichedCards,
-      count: enrichedCards.length,
-      timestamp: new Date().toISOString()
-    };
-    // CACHÉ REMOVIDO - No se guarda en caché
-
     const responseTime = Date.now() - startTime;
-    console.log(`✅ Admin all cards fetched from database in ${responseTime}ms`);
+    console.log(`✅ Admin all cards (optimized) fetched in ${responseTime}ms - Page ${page}/${totalPages}`);
 
     res.json({
       success: true,
       cards: enrichedCards,
-      count: enrichedCards.length,
-      cached: false,
+      pagination: {
+        page,
+        limit: finalLimit,
+        total: totalCards,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      },
       responseTime: responseTime
     });
+
   } catch (error) {
     const responseTime = Date.now() - startTime;
-    console.error(`❌ Error fetching all cards for admin (${responseTime}ms):`, error);
+    console.error(`❌ Error fetching admin cards (${responseTime}ms):`, error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      responseTime: responseTime
+    });
+  }
+});
+
+// Endpoint optimizado para transacciones específicas de una tarjeta
+router.get('/:cardId/transactions', authenticateToken, async (req, res) => {
+  const startTime = Date.now();
+  
+  try {
+    const { cardId } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const sortBy = req.query.sortBy || 'createdAt';
+    const sortOrder = req.query.sortOrder === 'asc' ? 1 : -1;
+    const search = req.query.search || '';
+    const status = req.query.status || '';
+    const operation = req.query.operation || '';
+
+    // Validar límites
+    const maxLimit = 100;
+    const finalLimit = Math.min(limit, maxLimit);
+    const skip = (page - 1) * finalLimit;
+
+    const Card = getCardModel();
+    const Transaction = getTransactionModel();
+
+    // Verificar que la tarjeta existe y el usuario tiene acceso
+    const card = await Card.findOne({ _id: cardId }).lean();
+    if (!card) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Card not found' 
+      });
+    }
+
+    // Verificar permisos (admin o propietario de la tarjeta)
+    if (req.user.role !== 'admin' && req.user.userId !== card.userId) {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'Access denied' 
+      });
+    }
+
+    // Construir query de filtros para transacciones
+    let transactionQuery = {
+      cardId: cardId,
+      isDeleted: { $ne: true },
+      status: { $ne: 'DELETED' }
+    };
+
+    if (search) {
+      transactionQuery.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { comentario: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    if (status) {
+      transactionQuery.status = status;
+    }
+
+    if (operation) {
+      transactionQuery.operation = operation;
+    }
+
+    // 1. Obtener total de transacciones para paginación
+    const totalTransactions = await Transaction.countDocuments(transactionQuery);
+    const totalPages = Math.ceil(totalTransactions / finalLimit);
+
+    // 2. Obtener transacciones paginadas
+    const transactions = await Transaction.find(transactionQuery)
+      .select('_id name amount date time status operation comentario createdAt')
+      .sort({ [sortBy]: sortOrder })
+      .skip(skip)
+      .limit(finalLimit)
+      .lean();
+
+    // 3. Procesar transacciones para limpiar datos
+    const processedTransactions = transactions.map(tx => ({
+      _id: tx._id,
+      name: tx.name,
+      amount: typeof tx.amount === 'number' ? tx.amount : parseFloat(tx.amount) || 0,
+      date: tx.date,
+      time: tx.time,
+      status: tx.status,
+      operation: tx.operation,
+      comentario: tx.comentario,
+      createdAt: tx.createdAt
+    }));
+
+    const responseTime = Date.now() - startTime;
+    console.log(`✅ Transactions for card ${cardId} fetched in ${responseTime}ms - Page ${page}/${totalPages}`);
+
+    res.json({
+      success: true,
+      cardId: cardId,
+      cardName: card.name,
+      transactions: processedTransactions,
+      pagination: {
+        page,
+        limit: finalLimit,
+        total: totalTransactions,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      },
+      responseTime: responseTime
+    });
+
+  } catch (error) {
+    const responseTime = Date.now() - startTime;
+    console.error(`❌ Error fetching transactions for card ${req.params.cardId} (${responseTime}ms):`, error);
     res.status(500).json({ 
       success: false, 
       error: error.message,

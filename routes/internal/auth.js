@@ -16,8 +16,13 @@ router.post('/login', async (req, res) => {
       });
     }
     
-    // Verificar credenciales
-    const result = await verifyLogin(loginName, last4);
+    // Verificar credenciales con información de request
+    const requestInfo = {
+      userAgent: req.get('User-Agent'),
+      ip: req.ip,
+      origin: req.get('Origin')
+    };
+    const result = await verifyLogin(loginName, last4, requestInfo);
     
     if (!result.success) {
       return res.status(401).json(result);

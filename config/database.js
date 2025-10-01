@@ -34,12 +34,12 @@ const connectDatabases = async () => {
       dbConfig.connection = await mongoose.createConnection(dbConfig.uri, {
         useNewUrlParser: true,
         useUnifiedTopology: true,
-        serverSelectionTimeoutMS: 5000,
-        socketTimeoutMS: 45000,
-        connectTimeoutMS: 5000,
-        maxPoolSize: 1,
-        minPoolSize: 0,
-        maxIdleTimeMS: 30000,
+        serverSelectionTimeoutMS: 10000,     // ✅ Aumentar timeout
+        socketTimeoutMS: 30000,              // ✅ Reducir timeout
+        connectTimeoutMS: 10000,             // ✅ Aumentar timeout de conexión
+        maxPoolSize: 5,                      // ✅ Más conexiones en pool
+        minPoolSize: 1,                      // ✅ Mantener conexiones mínimas
+        maxIdleTimeMS: 60000,                // ✅ Aumentar tiempo idle
         retryWrites: true,
         w: 'majority'
       });

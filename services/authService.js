@@ -50,13 +50,15 @@ const verifyLogin = async (loginName, last4, requestInfo = {}) => {
     if (!card) {
       console.log(`❌ Card not found with last4: ${last4}`);
       
-      // Log login failed
-      await historyService.logLoginFailed(loginName, last4, 'Card not found', {
-        method: 'POST',
-        endpoint: '/api/auth/login',
-        statusCode: 401,
-        responseTime: Date.now() - startTime,
-        ...requestInfo
+      // OPTIMIZACIÓN: Log login failed (asíncrono - no bloquea respuesta)
+      setImmediate(() => {
+        historyService.logLoginFailed(loginName, last4, 'Card not found', {
+          method: 'POST',
+          endpoint: '/api/auth/login',
+          statusCode: 401,
+          responseTime: Date.now() - startTime,
+          ...requestInfo
+        });
       });
       
       return { success: false, message: 'Invalid credentials' };
@@ -71,70 +73,101 @@ const verifyLogin = async (loginName, last4, requestInfo = {}) => {
     if (normalizedCardName !== normalizedLoginName) {
       console.log(`❌ Name mismatch: "${normalizedLoginName}" != "${normalizedCardName}"`);
       
-      // Log login failed
-      await historyService.logLoginFailed(loginName, last4, 'Name mismatch', {
-        method: 'POST',
-        endpoint: '/api/auth/login',
-        statusCode: 401,
-        responseTime: Date.now() - startTime,
-        ...requestInfo
+      // OPTIMIZACIÓN: Log login failed (asíncrono - no bloquea respuesta)
+      setImmediate(() => {
+        historyService.logLoginFailed(loginName, last4, 'Name mismatch', {
+          method: 'POST',
+          endpoint: '/api/auth/login',
+          statusCode: 401,
+          responseTime: Date.now() - startTime,
+          ...requestInfo
+        });
       });
       
       return { success: false, message: 'Invalid credentials' };
     }
     
-    // Obtener usuario con lean() para mejor rendimiento
+    // OPTIMIZACIÓN: Obtener usuario con lean() para mejor rendimiento
     const user = await User.findById(card.userId).lean();
     if (!user) {
       console.log(`❌ User not found for card: ${card._id}`);
       return { success: false, message: 'User not found' };
     }
     
-    // Crear o actualizar registro de autenticación
-    let authRecord = await Auth.findById(card.userId);
-    if (!authRecord) {
-      authRecord = new Auth({
-        _id: card.userId,
-        userId: card.userId,
-        cardId: card._id,
-        loginName: normalizedLoginName,
-        last4: last4
-      });
-    } else {
-      authRecord.lastLogin = new Date();
-      authRecord.loginCount += 1;
-      authRecord.loginName = normalizedLoginName;
-      authRecord.last4 = last4;
-    }
+    // OPTIMIZACIÓN: Generar refresh token primero
+    const refreshToken = jwt.sign({
+      userId: card.userId,
+      cardId: card._id,
+      iat: Math.floor(Date.now() / 1000)
+    }, config.JWT_SECRET, { expiresIn: '7d' });
     
-    await authRecord.save();
+    // OPTIMIZACIÓN: Upsert en una sola operación
+    const updateData = {
+      userId: card.userId,
+      cardId: card._id,
+      loginName: normalizedLoginName,
+      last4: last4,
+      lastLogin: new Date(),
+      $inc: { loginCount: 1 },
+      $push: {
+        refreshTokens: {
+          token: refreshToken,
+          createdAt: new Date(),
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+        }
+      }
+    };
     
-    // Generar tokens
-    const { accessToken, refreshToken } = generateTokens(card.userId, card._id);
+    // OPTIMIZACIÓN: Una sola operación de upsert
+    await Auth.findByIdAndUpdate(
+      card.userId,
+      updateData,
+      { 
+        upsert: true, 
+        new: true, 
+        setDefaultsOnInsert: true
+      }
+    );
     
-    // Guardar refresh token
-    authRecord.refreshTokens.push({
-      token: refreshToken,
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 días
+    // OPTIMIZACIÓN: Limpiar tokens expirados de forma asíncrona
+    setImmediate(async () => {
+      try {
+        await Auth.findByIdAndUpdate(card.userId, {
+          $pull: {
+            refreshTokens: { expiresAt: { $lt: new Date() } }
+          }
+        });
+        
+        // Limitar a 5 tokens
+        const auth = await Auth.findById(card.userId);
+        if (auth && auth.refreshTokens.length > 5) {
+          auth.refreshTokens = auth.refreshTokens.slice(-5);
+          await auth.save();
+        }
+      } catch (error) {
+        console.error('Error cleaning expired tokens:', error);
+      }
     });
     
-    // Limpiar tokens expirados (mantener solo los últimos 5)
-    authRecord.refreshTokens = authRecord.refreshTokens
-      .filter(token => token.expiresAt > new Date())
-      .slice(-5);
-    
-    await authRecord.save();
+    // OPTIMIZACIÓN: Generar access token
+    const accessToken = jwt.sign({
+      userId: card.userId,
+      cardId: card._id,
+      iat: Math.floor(Date.now() / 1000)
+    }, config.JWT_SECRET, { expiresIn: config.JWT_EXPIRE || '24h' });
     
     const responseTime = Date.now() - startTime;
     console.log(`✅ Login successful for user: ${card.userId} (${card.name}) in ${responseTime}ms`);
     
-    // Log login success
-    await historyService.logLoginSuccess(user, card, {
-      method: 'POST',
-      endpoint: '/api/auth/login',
-      statusCode: 200,
-      responseTime: responseTime,
-      ...requestInfo
+    // OPTIMIZACIÓN: Log asíncrono - no bloquea respuesta
+    setImmediate(() => {
+      historyService.logLoginSuccess(user, card, {
+        method: 'POST',
+        endpoint: '/api/auth/login',
+        statusCode: 200,
+        responseTime: responseTime,
+        ...requestInfo
+      });
     });
     
     return {
@@ -152,10 +185,17 @@ const verifyLogin = async (loginName, last4, requestInfo = {}) => {
         name: card.name,
         last4: card.last4,
         status: card.status,
-        deposited: card.deposited,
-        refunded: card.refunded,
-        posted: card.posted,
-        available: card.available
+        // OPTIMIZACIÓN: Usar stats en lugar de campos obsoletos
+        stats: card.stats || {
+          money_in: 0,
+          refund: 0,
+          posted: 0,
+          reversed: 0,
+          rejected: 0,
+          pending: 0,
+          withdrawal: 0,
+          available: 0
+        }
       },
       tokens: {
         accessToken,

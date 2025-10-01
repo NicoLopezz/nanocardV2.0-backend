@@ -24,9 +24,9 @@ const authenticateToken = async (req, res, next) => {
       });
     }
     
-    // Obtener información completa del usuario de la base de datos
+    // Obtener información completa del usuario de la base de datos (optimizado)
     const User = getUserModel();
-    const user = await User.findById(result.decoded.userId);
+    const user = await User.findById(result.decoded.userId).lean();
     
     if (!user) {
       return res.status(403).json({
