@@ -100,7 +100,7 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
-// Endpoint optimizado para obtener tarjetas con paginación (solo stats, sin transacciones)
+// Endpoint para obtener TODAS las tarjetas sin paginación (solo stats, sin transacciones)
 router.get('/admin/all', authenticateToken, async (req, res) => {
   const startTime = Date.now();
   
@@ -113,19 +113,12 @@ router.get('/admin/all', authenticateToken, async (req, res) => {
       });
     }
 
-    // Parámetros de paginación y filtros
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
+    // Parámetros de filtros (sin paginación)
     const sortBy = req.query.sortBy || 'updatedAt';
     const sortOrder = req.query.sortOrder === 'asc' ? 1 : -1;
     const search = req.query.search || '';
     const status = req.query.status || '';
     const supplier = req.query.supplier || '';
-
-    // Validar límites por seguridad
-    const maxLimit = 100;
-    const finalLimit = Math.min(limit, maxLimit);
-    const skip = (page - 1) * finalLimit;
 
     const Card = getCardModel();
     const User = getUserModel();
@@ -148,48 +141,35 @@ router.get('/admin/all', authenticateToken, async (req, res) => {
       cardQuery.supplier = supplier;
     }
 
-    // 1. Obtener total de tarjetas para paginación
-    const totalCards = await Card.countDocuments(cardQuery);
-    const totalPages = Math.ceil(totalCards / finalLimit);
-
-    // 2. Obtener tarjetas paginadas (SOLO stats, SIN transacciones)
+    // 1. Obtener TODAS las tarjetas (sin paginación)
     const cards = await Card.find(cardQuery)
       .select('_id name last4 status userId supplier limits createdAt updatedAt stats')
       .sort({ [sortBy]: sortOrder })
-      .skip(skip)
-      .limit(finalLimit)
-      .lean(); // Usar lean() para mejor rendimiento
+      .lean();
 
     if (cards.length === 0) {
       return res.json({
         success: true,
         cards: [],
-        pagination: {
-          page,
-          limit: finalLimit,
-          total: totalCards,
-          totalPages,
-          hasNext: false,
-          hasPrev: false
-        },
+        total: 0,
         responseTime: Date.now() - startTime
       });
     }
 
-    // 3. Obtener usuarios solo para las tarjetas de la página actual
+    // 2. Obtener TODOS los usuarios para las tarjetas
     const userIds = [...new Set(cards.map(card => card.userId).filter(Boolean))];
     const users = await User.find(
       { _id: { $in: userIds } },
       { _id: 1, username: 1, profile: 1 }
     ).lean();
 
-    // 4. Crear mapa de usuarios para acceso rápido
+    // 3. Crear mapa de usuarios para acceso rápido
     const userMap = new Map();
     users.forEach(user => {
       userMap.set(user._id.toString(), user);
     });
 
-    // 5. Enriquecer tarjetas con información del usuario (SIN transacciones)
+    // 4. Enriquecer tarjetas con información del usuario (SIN transacciones)
     const enrichedCards = cards.map(card => {
       const userIdString = card.userId ? card.userId.toString() : null;
       const user = userIdString ? userMap.get(userIdString) : null;
@@ -218,24 +198,16 @@ router.get('/admin/all', authenticateToken, async (req, res) => {
         limits: card.limits,
         createdAt: card.createdAt,
         updatedAt: card.updatedAt
-        // SIN transacciones - se obtienen por endpoint separado
       };
     });
 
     const responseTime = Date.now() - startTime;
-    console.log(`✅ Admin all cards (optimized) fetched in ${responseTime}ms - Page ${page}/${totalPages}`);
+    console.log(`✅ Admin all cards (ALL without pagination) fetched in ${responseTime}ms - Total: ${cards.length}`);
 
     res.json({
       success: true,
       cards: enrichedCards,
-      pagination: {
-        page,
-        limit: finalLimit,
-        total: totalCards,
-        totalPages,
-        hasNext: page < totalPages,
-        hasPrev: page > 1
-      },
+      total: cards.length,
       responseTime: responseTime
     });
 
