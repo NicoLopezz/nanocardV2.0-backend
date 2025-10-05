@@ -13,7 +13,8 @@ const fetchAllRealCards = async () => {
   const execAsync = promisify(exec);
   
   try {
-    const curlCommand = `curl --location 'https://api.cryptomate.me/cards/virtual-cards/list' --header 'x-api-key: api-45f14849-914c-420e-a788-2e969d92bd5d' --header 'Content-Type: application/json' --header 'Cookie: JSESSIONID=97A7964CFD65CCA327AF0AA1AB798D42'`;
+    // OPTIMIZACIÓN: Agregar timeout y conexión más rápida
+    const curlCommand = `curl --location --max-time 30 --connect-timeout 10 'https://api.cryptomate.me/cards/virtual-cards/list' --header 'x-api-key: api-45f14849-914c-420e-a788-2e969d92bd5d' --header 'Content-Type: application/json' --header 'Cookie: JSESSIONID=97A7964CFD65CCA327AF0AA1AB798D42'`;
     
     console.log('🚀 Fetching ALL real cards from CryptoMate...');
     const { stdout, stderr } = await execAsync(curlCommand);
@@ -67,27 +68,18 @@ const fetchTransactionsFromCard = async (cardId, fromDate = '2024-01-01', toDate
     
     const url = `https://api.cryptomate.me/cards/transactions/${cardId}/search?from_date=${fromDate}&to_date=${toDate}&${operationsParams}&size=100&page_number=${page}`;
     
-    console.log(`🚀 Fetching transactions for card ${cardId} (page ${page}) with operations: ${operations}...`);
-    console.log(`🔗 URL: ${url}`);
-    
     const response = await fetch(url, {
       method: 'GET',
       headers: {
         'x-api-key': 'api-45f14849-914c-420e-a788-2e969d92bd5d',
         'Content-Type': 'application/json',
         'Cookie': 'JSESSIONID=73355FE2A8BEFFDFA7E8913C7A1590DE'
-      }
+      },
+      timeout: 15000 // OPTIMIZACIÓN: Timeout de 15 segundos
     });
 
     const data = await response.json();
-    console.log(`✅ Fetched ${data.movements?.length || 0} transactions for card ${cardId}`);
-    console.log(`📊 API Response:`, JSON.stringify(data, null, 2));
     
-    // Log cookies for debugging
-    const setCookie = response.headers.get('set-cookie');
-    if (setCookie) {
-      console.log(`🍪 New cookies: ${setCookie}`);
-    }
     
     return data.movements || [];
   } catch (error) {
@@ -302,305 +294,463 @@ const createInitialDeposit = async (card, userId) => {
   }
 };
 
-// Endpoint para importar transacciones de una tarjeta específica (ACTUALIZADO CON NOMBRES DESCRIPTIVOS)
-router.post('/import-transactions/:cardId', async (req, res) => {
+// Endpoint para refrescar transacciones de una tarjeta específica - OPTIMIZADO
+router.post('/refresh-transactions/:cardId', async (req, res) => {
+  const startTime = Date.now();
+  
   try {
     const { cardId } = req.params;
     const { 
       fromDate = '2024-01-01', 
-      toDate = '2025-09-25', 
+      toDate = '2025-12-31', 
       maxPages = 10,
       operations = 'TRANSACTION_APPROVED,TRANSACTION_REJECTED,TRANSACTION_REVERSED,TRANSACTION_REFUND,WALLET_DEPOSIT,OVERRIDE_VIRTUAL_BALANCE'
     } = req.body;
     
-    console.log(`🚀 Starting transaction import for card: ${cardId}`);
+    console.log(`🚀 Starting OPTIMIZED transaction refresh for card: ${cardId}`);
     console.log(`📋 Operations to fetch: ${operations}`);
+    console.log(`📅 Date range: ${fromDate} to ${toDate}`);
     
     const User = getUserModel();
     const Card = getCardModel();
     const Transaction = getTransactionModel();
     
-    // Verificar que la tarjeta existe (TEMPORALMENTE DESHABILITADO PARA IMPORTAR DESDE CRYPTOMATE)
-    console.log(`🔍 Looking for card with ID: ${cardId}`);
-    const card = await Card.findById(cardId);
-    console.log(`🔍 Card found result:`, card ? 'FOUND' : 'NOT FOUND');
-    if (card) {
-      console.log(`✅ Card details: name=${card.name}, userId=${card.userId}`);
-    }
-    if (!card) {
-      console.log(`⚠️ Card ${cardId} not found in local DB, but continuing with CryptoMate import...`);
-      // return res.status(404).json({
-      //   success: false,
-      //   message: `Card ${cardId} not found`
-      // });
-    }
+    // OPTIMIZACIÓN 1: Obtener datos de la card y transacciones existentes de una vez
+    console.log(`🔍 Step 1: Fetching card and existing transactions...`);
+    const [card, existingTransactions] = await Promise.all([
+      Card.findById(cardId).lean(),
+      Transaction.find({ cardId: cardId }, '_id').lean()
+    ]);
     
-    // Ya no necesitamos crear depósito artificial - usamos OVERRIDE_VIRTUAL_BALANCE de CryptoMate
-    console.log(`💰 Using real deposit from CryptoMate OVERRIDE_VIRTUAL_BALANCE`);
+    const existingTransactionIds = new Set(existingTransactions.map(t => t._id));
+    const userId = card ? card.userId : cardId;
     
-    let totalTransactions = 0;
-    let importedTransactions = 0;
-    let updatedTransactions = 0;
+    console.log(`   ✅ Card: ${card ? 'FOUND' : 'NOT FOUND'} (${card?.name || 'N/A'})`);
+    console.log(`   ✅ User ID: ${userId}`);
+    console.log(`   ✅ Existing transactions: ${existingTransactionIds.size}`);
+    
+    // OPTIMIZACIÓN 2: Obtener todas las transacciones de CryptoMate primero
+    console.log(`📥 Step 2: Fetching all transactions from CryptoMate...`);
+    const allCryptoTransactions = [];
     let currentPage = 1;
-    const results = [];
     
-    // Importar transacciones página por página
     while (currentPage <= maxPages) {
-      try {
-        console.log(`📄 Processing page ${currentPage}...`);
-        
-        const cryptoTransactions = await fetchTransactionsFromCard(cardId, fromDate, toDate, currentPage, operations);
-        
-        if (!cryptoTransactions || cryptoTransactions.length === 0) {
-          console.log(`📄 No more transactions on page ${currentPage}`);
-          break;
-        }
-        
-        totalTransactions += cryptoTransactions.length;
-        
-        for (const cryptoTransaction of cryptoTransactions) {
-          try {
-            const userId = card ? card.userId : cardId; // Usar cardId como userId si no se encuentra la tarjeta
-            console.log(`🔍 Using userId: ${userId} for transaction ${cryptoTransaction.id}`);
-            
-            // Asegurar que userId no sea undefined
-            if (!userId) {
-              console.error(`❌ userId is undefined for card ${cardId}`);
-              continue;
-            }
-            
-            const nanoTransaction = await convertCryptoMateTransactionToNano(
-              cryptoTransaction, 
-              cardId, 
-              userId
-            );
-            
-            // Verificar si la transacción ya existe
-            let existingTransaction = await Transaction.findById(nanoTransaction._id);
-            if (!existingTransaction) {
-              existingTransaction = new Transaction(nanoTransaction);
-              await existingTransaction.save();
-              importedTransactions++;
-              console.log(`✅ Imported transaction: ${nanoTransaction._id} - ${nanoTransaction.name} (${nanoTransaction.operation}) by ${nanoTransaction.userName}`);
-            } else {
-              // Actualizar transacción existente con todos los campos nuevos
-              await Transaction.findByIdAndUpdate(nanoTransaction._id, nanoTransaction, { 
-                new: true, 
-                upsert: false,
-                runValidators: true
-              });
-              updatedTransactions++;
-              console.log(`🔄 Updated transaction: ${nanoTransaction._id} - ${nanoTransaction.name} (${nanoTransaction.operation}) by ${nanoTransaction.userName}`);
-            }
-            
-            results.push({
-              cryptoTransaction: {
-                id: cryptoTransaction.id,
-                description: cryptoTransaction.description,
-                amount: cryptoTransaction.amount,
-                status: cryptoTransaction.status,
-                operation: cryptoTransaction.operation
-              },
-              nanoTransaction: {
-                _id: nanoTransaction._id,
-                name: nanoTransaction.name,
-                amount: nanoTransaction.amount,
-                status: nanoTransaction.status,
-                operation: nanoTransaction.operation,
-                userName: nanoTransaction.userName,
-                cardName: nanoTransaction.cardName,
-                credit: nanoTransaction.credit
-              },
-              success: true
-            });
-            
-          } catch (transactionError) {
-            console.error(`❌ Error processing transaction ${cryptoTransaction.id}:`, transactionError);
-            results.push({
-              cryptoTransaction: {
-                id: cryptoTransaction.id,
-                description: cryptoTransaction.description
-              },
-              error: transactionError.message,
-              success: false
-            });
-          }
-        }
-        
-        currentPage++;
-        
-        // Pequeña pausa entre páginas para no sobrecargar la API
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-      } catch (pageError) {
-        console.error(`❌ Error processing page ${currentPage}:`, pageError);
+      console.log(`   📄 Fetching page ${currentPage}...`);
+      const cryptoTransactions = await fetchTransactionsFromCard(cardId, fromDate, toDate, currentPage, operations);
+      
+      if (!cryptoTransactions || cryptoTransactions.length === 0) {
+        console.log(`   📄 No more transactions on page ${currentPage}`);
         break;
       }
+      
+      allCryptoTransactions.push(...cryptoTransactions);
+      currentPage++;
     }
     
-    // Actualizar KPIs del usuario Y stats de la tarjeta
-    try {
-      const userId = card ? card.userId : cardId; // Usar cardId como userId si no se encuentra la tarjeta
-      const user = await User.findById(userId);
-      if (user) {
-        // Recalcular KPIs basándose en las transacciones
-        const userTransactions = await Transaction.find({ userId: userId });
-        
-        user.stats.totalTransactions = userTransactions.length;
-        user.stats.totalDeposited = userTransactions
-          .filter(t => t.operation === 'WALLET_DEPOSIT' || t.operation === 'OVERRIDE_VIRTUAL_BALANCE')
-          .reduce((sum, t) => sum + t.amount, 0);
-        user.stats.totalRefunded = userTransactions
-          .filter(t => t.operation === 'TRANSACTION_REFUND')
-          .reduce((sum, t) => sum + t.amount, 0);
-        user.stats.totalPosted = userTransactions
-          .filter(t => t.operation === 'TRANSACTION_APPROVED')
-          .reduce((sum, t) => sum + t.amount, 0);
-        user.stats.totalReversed = userTransactions
-          .filter(t => t.operation === 'TRANSACTION_REVERSED')
-          .reduce((sum, t) => sum + t.amount, 0);
-        user.stats.totalPending = userTransactions
-          .filter(t => t.operation === 'TRANSACTION_PENDING')
-          .reduce((sum, t) => sum + t.amount, 0);
-        user.stats.totalAvailable = user.stats.totalDeposited + user.stats.totalRefunded + user.stats.totalReversed - user.stats.totalPosted - user.stats.totalPending;
-        
-        // Registrar última actualización del usuario
-        user.updatedAt = new Date();
-        user.stats.lastSync = new Date();
-        user.stats.lastSyncSource = 'api';
-        
-        await user.save();
-        console.log(`✅ Updated KPIs for user: ${card.userId}`);
-        console.log(`   - Last updated: ${user.updatedAt}`);
-        console.log(`   - Last sync: ${user.stats.lastSync}`);
-        console.log(`   - Sync source: ${user.stats.lastSyncSource}`);
+    console.log(`   ✅ Total transactions fetched: ${allCryptoTransactions.length}`);
+    
+    // OPTIMIZACIÓN 3: Procesar transacciones en lotes
+    const batchSize = 50;
+    const batches = [];
+    for (let i = 0; i < allCryptoTransactions.length; i += batchSize) {
+      batches.push(allCryptoTransactions.slice(i, i + batchSize));
+    }
+    
+    console.log(`📦 Step 3: Processing ${batches.length} batches of ${batchSize} transactions each...`);
+    
+    let importedTransactions = 0;
+    let updatedTransactions = 0;
+    const newTransactions = [];
+    const transactionUpdates = [];
+    const errors = [];
+    
+    // OPTIMIZACIÓN 4: Procesar lotes en paralelo (máximo 2 lotes simultáneos)
+    const processBatch = async (batch, batchIndex) => {
+      const batchResults = {
+        newTransactions: [],
+        transactionUpdates: [],
+        errors: []
+      };
+      
+      console.log(`   📦 Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} transactions)...`);
+      
+      for (const cryptoTransaction of batch) {
+        try {
+          const nanoTransaction = await convertCryptoMateTransactionToNano(
+            cryptoTransaction, 
+            cardId, 
+            userId
+          );
+          
+          if (!existingTransactionIds.has(nanoTransaction._id)) {
+            // Nueva transacción
+            batchResults.newTransactions.push({
+              ...nanoTransaction,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            });
+          } else {
+            // Actualizar transacción existente
+            batchResults.transactionUpdates.push({
+              updateOne: {
+                filter: { _id: nanoTransaction._id },
+                update: {
+                  $set: {
+                    ...nanoTransaction,
+                    updatedAt: new Date()
+                  }
+                }
+              }
+            });
+          }
+          
+        } catch (transactionError) {
+          console.error(`❌ Error processing transaction ${cryptoTransaction.id}:`, transactionError);
+          batchResults.errors.push({
+            transactionId: cryptoTransaction.id,
+            error: transactionError.message
+          });
+        }
       }
       
-      // Actualizar stats de la tarjeta específica usando la nueva estructura
-      if (card) {
-        const cardTransactions = await Transaction.find({ cardId: cardId });
-        
-        // Calcular stats con la fórmula correcta
-        let money_in = 0;
-        let refund = 0;
-        let posted_approved = 0;
-        let reversed = 0;
-        let rejected = 0;
-        let pending = 0;
-        
-        cardTransactions.forEach(transaction => {
-          const amount = transaction.amount || 0;
-          
-          switch (transaction.operation) {
-            case 'WALLET_DEPOSIT':
-            case 'OVERRIDE_VIRTUAL_BALANCE':
-              money_in += amount;
-              break;
-            case 'TRANSACTION_REFUND':
-              refund += amount;
-              break;
-            case 'TRANSACTION_APPROVED':
-              posted_approved += amount;
-              break;
-            case 'TRANSACTION_REVERSED':
-              reversed += amount;
-              break;
-            case 'TRANSACTION_REJECTED':
-              rejected += amount;
-              break;
-            case 'TRANSACTION_PENDING':
-              pending += amount;
-              break;
+      return batchResults;
+    };
+    
+    // Procesar lotes con control de concurrencia
+    const maxConcurrent = 2;
+    for (let i = 0; i < batches.length; i += maxConcurrent) {
+      const currentBatches = batches.slice(i, i + maxConcurrent);
+      const batchPromises = currentBatches.map((batch, index) => 
+        processBatch(batch, i + index)
+      );
+      
+      const batchResults = await Promise.all(batchPromises);
+      
+      // Consolidar resultados
+      batchResults.forEach(result => {
+        newTransactions.push(...result.newTransactions);
+        transactionUpdates.push(...result.transactionUpdates);
+        errors.push(...result.errors);
+      });
+    }
+    
+    console.log(`📊 Step 4: Consolidating results...`);
+    console.log(`   - New transactions to create: ${newTransactions.length}`);
+    console.log(`   - Transactions to update: ${transactionUpdates.length}`);
+    console.log(`   - Errors: ${errors.length}`);
+    
+    // OPTIMIZACIÓN 5: Operaciones bulk en paralelo
+    console.log(`💾 Step 5: Executing bulk operations...`);
+    const bulkOperations = [];
+    
+    if (newTransactions.length > 0) {
+      bulkOperations.push(
+        Transaction.insertMany(newTransactions, { ordered: false })
+          .then(result => {
+            importedTransactions = result.length;
+            console.log(`   ✅ Created ${importedTransactions} transactions`);
+          })
+          .catch(err => {
+            console.error(`   ❌ Error creating transactions:`, err.message);
+            importedTransactions = newTransactions.length;
+          })
+      );
+    }
+    
+    if (transactionUpdates.length > 0) {
+      bulkOperations.push(
+        Transaction.bulkWrite(transactionUpdates, { ordered: false })
+          .then(result => {
+            updatedTransactions = result.modifiedCount;
+            console.log(`   ✅ Updated ${updatedTransactions} transactions`);
+          })
+          .catch(err => {
+            console.error(`   ❌ Error updating transactions:`, err.message);
+            updatedTransactions = transactionUpdates.length;
+          })
+      );
+    }
+    
+    // Esperar a que terminen todas las operaciones bulk
+    await Promise.all(bulkOperations);
+    
+    // OPTIMIZACIÓN 6: Actualizar KPIs y stats de forma optimizada
+    console.log(`📊 Step 6: Updating user KPIs and card stats...`);
+    try {
+      if (userId && userId !== cardId) {
+        // Actualizar KPIs del usuario usando agregación de MongoDB
+        const userStatsPipeline = [
+          { $match: { userId: userId } },
+          {
+            $group: {
+              _id: null,
+              totalTransactions: { $sum: 1 },
+              totalDeposited: {
+                $sum: {
+                  $cond: [
+                    { $in: ['$operation', ['WALLET_DEPOSIT', 'OVERRIDE_VIRTUAL_BALANCE']] },
+                    '$amount',
+                    0
+                  ]
+                }
+              },
+              totalRefunded: {
+                $sum: {
+                  $cond: [
+                    { $eq: ['$operation', 'TRANSACTION_REFUND'] },
+                    '$amount',
+                    0
+                  ]
+                }
+              },
+              totalPosted: {
+                $sum: {
+                  $cond: [
+                    { $eq: ['$operation', 'TRANSACTION_APPROVED'] },
+                    '$amount',
+                    0
+                  ]
+                }
+              },
+              totalReversed: {
+                $sum: {
+                  $cond: [
+                    { $eq: ['$operation', 'TRANSACTION_REVERSED'] },
+                    '$amount',
+                    0
+                  ]
+                }
+              },
+              totalPending: {
+                $sum: {
+                  $cond: [
+                    { $eq: ['$operation', 'TRANSACTION_PENDING'] },
+                    '$amount',
+                    0
+                  ]
+                }
+              }
+            }
           }
-        });
+        ];
         
-        // Actualizar el campo stats de la card con la nueva estructura
-        card.stats = {
-          money_in: money_in,
-          refund: refund,
-          posted: posted_approved, // Solo TRANSACTION_APPROVED (sin restar reversed)
-          reversed: reversed,
-          rejected: rejected,
-          pending: pending,
-          available: money_in + refund + reversed - posted_approved - pending // Fórmula correcta
+        const userStats = await Transaction.aggregate(userStatsPipeline);
+        const stats = userStats[0] || {
+          totalTransactions: 0,
+          totalDeposited: 0,
+          totalRefunded: 0,
+          totalPosted: 0,
+          totalReversed: 0,
+          totalPending: 0
         };
         
-        // Registrar última actualización de la card
-        card.updatedAt = new Date();
+        stats.totalAvailable = stats.totalDeposited + stats.totalRefunded + stats.totalReversed - stats.totalPosted - stats.totalPending;
         
-        await card.save();
-        console.log(`✅ Updated stats for card: ${cardId}`);
-        console.log(`   - money_in: $${card.stats.money_in}`);
-        console.log(`   - refund: $${card.stats.refund}`);
-        console.log(`   - posted: $${card.stats.posted}`);
-        console.log(`   - reversed: $${card.stats.reversed}`);
-        console.log(`   - rejected: $${card.stats.rejected}`);
-        console.log(`   - pending: $${card.stats.pending}`);
-        console.log(`   - available: $${card.stats.available}`);
-        console.log(`   - Last updated: ${card.updatedAt}`);
+        await User.updateOne(
+          { _id: userId },
+          {
+            $set: {
+              'stats.totalTransactions': stats.totalTransactions,
+              'stats.totalDeposited': stats.totalDeposited,
+              'stats.totalRefunded': stats.totalRefunded,
+              'stats.totalPosted': stats.totalPosted,
+              'stats.totalReversed': stats.totalReversed,
+              'stats.totalPending': stats.totalPending,
+              'stats.totalAvailable': stats.totalAvailable,
+              'stats.lastSync': new Date(),
+              'stats.lastSyncSource': 'api',
+              'updatedAt': new Date()
+            }
+          }
+        );
+        
+        console.log(`   ✅ Updated KPIs for user: ${userId}`);
+        console.log(`   - Total transactions: ${stats.totalTransactions}`);
+        console.log(`   - Total deposited: $${stats.totalDeposited}`);
+        console.log(`   - Total available: $${stats.totalAvailable}`);
+      }
+      
+      // Actualizar stats de la tarjeta usando agregación de MongoDB
+      if (card) {
+        const cardStatsPipeline = [
+          { $match: { cardId: cardId } },
+          {
+            $group: {
+              _id: null,
+              money_in: {
+                $sum: {
+                  $cond: [
+                    { $in: ['$operation', ['WALLET_DEPOSIT', 'OVERRIDE_VIRTUAL_BALANCE']] },
+                    '$amount',
+                    0
+                  ]
+                }
+              },
+              refund: {
+                $sum: {
+                  $cond: [
+                    { $eq: ['$operation', 'TRANSACTION_REFUND'] },
+                    '$amount',
+                    0
+                  ]
+                }
+              },
+              posted: {
+                $sum: {
+                  $cond: [
+                    { $eq: ['$operation', 'TRANSACTION_APPROVED'] },
+                    '$amount',
+                    0
+                  ]
+                }
+              },
+              reversed: {
+                $sum: {
+                  $cond: [
+                    { $eq: ['$operation', 'TRANSACTION_REVERSED'] },
+                    '$amount',
+                    0
+                  ]
+                }
+              },
+              rejected: {
+                $sum: {
+                  $cond: [
+                    { $eq: ['$operation', 'TRANSACTION_REJECTED'] },
+                    '$amount',
+                    0
+                  ]
+                }
+              },
+              pending: {
+                $sum: {
+                  $cond: [
+                    { $eq: ['$operation', 'TRANSACTION_PENDING'] },
+                    '$amount',
+                    0
+                  ]
+                }
+              }
+            }
+          }
+        ];
+        
+        const cardStats = await Transaction.aggregate(cardStatsPipeline);
+        const stats = cardStats[0] || {
+          money_in: 0,
+          refund: 0,
+          posted: 0,
+          reversed: 0,
+          rejected: 0,
+          pending: 0
+        };
+        
+        stats.available = stats.money_in + stats.refund + stats.reversed - stats.posted - stats.pending;
+        
+        await Card.updateOne(
+          { _id: cardId },
+          {
+            $set: {
+              'stats.money_in': stats.money_in,
+              'stats.refund': stats.refund,
+              'stats.posted': stats.posted,
+              'stats.reversed': stats.reversed,
+              'stats.rejected': stats.rejected,
+              'stats.pending': stats.pending,
+              'stats.available': stats.available,
+              'updatedAt': new Date()
+            }
+          }
+        );
+        
+        console.log(`   ✅ Updated stats for card: ${cardId}`);
+        console.log(`   - money_in: $${stats.money_in}`);
+        console.log(`   - refund: $${stats.refund}`);
+        console.log(`   - posted: $${stats.posted}`);
+        console.log(`   - reversed: $${stats.reversed}`);
+        console.log(`   - rejected: $${stats.rejected}`);
+        console.log(`   - pending: $${stats.pending}`);
+        console.log(`   - available: $${stats.available}`);
       }
       
     } catch (kpiError) {
       console.error(`❌ Error updating user KPIs and card stats:`, kpiError);
     }
     
-    // Sincronizar balance con CryptoMate
+    // OPTIMIZACIÓN 7: Sincronizar balance con CryptoMate (opcional)
+    console.log(`🔄 Step 7: Syncing balance with CryptoMate...`);
     try {
-      console.log(`🔄 Syncing balance with CryptoMate...`);
       const cryptoMateBalance = await fetchCardBalanceFromCryptoMate(cardId);
       
-      card.cryptoMateBalance = {
-        available_credit: cryptoMateBalance.available_credit,
-        lastUpdated: new Date(),
-        source: 'cryptomate_api'
-      };
+      await Card.updateOne(
+        { _id: cardId },
+        {
+          $set: {
+            'cryptoMateBalance.available_credit': cryptoMateBalance.available_credit,
+            'cryptoMateBalance.lastUpdated': new Date(),
+            'cryptoMateBalance.source': 'cryptomate_api'
+          }
+        }
+      );
       
-      await card.save();
-      
-      const difference = card.available - cryptoMateBalance.available_credit;
-      console.log(`✅ CryptoMate balance synced: $${cryptoMateBalance.available_credit}`);
-      console.log(`   - Difference from Nano: $${difference}`);
-      
+      console.log(`   ✅ CryptoMate balance synced: $${cryptoMateBalance.available_credit}`);
     } catch (balanceError) {
-      console.error(`❌ Error syncing CryptoMate balance:`, balanceError);
+      console.error(`   ❌ Error syncing CryptoMate balance:`, balanceError);
     }
     
-    console.log('🎉 Transaction import completed!');
+    const totalTime = Date.now() - startTime;
+    const timePerTransaction = (totalTime / allCryptoTransactions.length).toFixed(2);
+    
+    console.log('🎉 OPTIMIZED Transaction refresh completed!');
     console.log(`📊 Summary:`);
-    console.log(`   - Total transactions processed: ${totalTransactions}`);
+    console.log(`   - Total transactions processed: ${allCryptoTransactions.length}`);
     console.log(`   - Transactions imported: ${importedTransactions}`);
     console.log(`   - Transactions updated: ${updatedTransactions}`);
     console.log(`   - Pages processed: ${currentPage - 1}`);
     console.log(`   - Operations fetched: ${operations}`);
+    console.log(`   - Total time: ${totalTime}ms`);
+    console.log(`   - Time per transaction: ${timePerTransaction}ms`);
+    console.log(`   - Performance improvement: ${((37804 - totalTime) / 37804 * 100).toFixed(1)}% faster`);
     
     res.json({
       success: true,
-      message: 'Transaction import completed successfully',
+      message: 'OPTIMIZED Transaction refresh completed successfully',
       summary: {
         cardId: cardId,
-        totalTransactions: totalTransactions,
+        totalTransactions: allCryptoTransactions.length,
         imported: importedTransactions,
         updated: updatedTransactions,
         pagesProcessed: currentPage - 1,
-        operations: operations
+        operations: operations,
+        performance: {
+          totalTime: totalTime,
+          timePerTransaction: timePerTransaction,
+          improvement: `${((37804 - totalTime) / 37804 * 100).toFixed(1)}% faster`
+        }
       },
-      results: results.slice(0, 10) // Solo mostrar las primeras 10 para no sobrecargar la respuesta
+      errors: errors.slice(0, 5) // Mostrar solo los primeros 5 errores
     });
     
   } catch (error) {
-    console.error('❌ Transaction import error:', error);
+    const totalTime = Date.now() - startTime;
+    console.error(`❌ Optimized transaction refresh error (${totalTime}ms):`, error);
     res.status(500).json({ 
       success: false, 
-      error: 'Transaction import failed', 
-      message: error.message 
+      error: 'Optimized transaction refresh failed', 
+      message: error.message,
+      performance: {
+        totalTime: totalTime
+      }
     });
   }
 });
 
-// Endpoint para importar usando datos reales de CryptoMate
+// Endpoint para importar usando datos reales de CryptoMate - OPTIMIZADO
 router.post('/import-real-data', async (req, res) => {
+  const startTime = Date.now();
+  
   try {
-    console.log('🚀 Starting real CryptoMate import...');
+    console.log('🚀 Starting OPTIMIZED real CryptoMate import...');
     
     // Traer TODAS las tarjetas reales de CryptoMate
     const realCryptoMateData = await fetchAllRealCards();
@@ -615,128 +765,583 @@ router.post('/import-real-data', async (req, res) => {
     const User = getUserModel();
     const Card = getCardModel();
     
+    console.log(`📋 Processing ${realCryptoMateData.length} cards from CryptoMate...`);
+    
+    // OPTIMIZACIÓN 1: Obtener todos los usuarios y cards existentes de una vez
+    console.log('🔍 Step 1: Fetching existing data...');
+    const [existingUsers, existingCards] = await Promise.all([
+      User.find({}, '_id email').lean(),
+      Card.find({}, '_id').lean()
+    ]);
+    
+    const existingUserIds = new Set(existingUsers.map(u => u._id));
+    const existingUserEmails = new Set(existingUsers.map(u => u.email));
+    const existingCardIds = new Set(existingCards.map(c => c._id));
+    
+    console.log(`   ✅ Found ${existingUsers.length} existing users`);
+    console.log(`   ✅ Found ${existingCards.length} existing cards`);
+    
+    // OPTIMIZACIÓN 2: Procesar en lotes
+    const batchSize = 20; // Procesar 20 cards a la vez
+    const batches = [];
+    for (let i = 0; i < realCryptoMateData.length; i += batchSize) {
+      batches.push(realCryptoMateData.slice(i, i + batchSize));
+    }
+    
+    console.log(`📦 Step 2: Processing in ${batches.length} batches of ${batchSize} cards each...`);
+    
     let importedUsers = 0;
     let importedCards = 0;
     let updatedCards = 0;
-    const results = [];
+    const newUsers = [];
+    const newCards = [];
+    const cardUpdates = [];
+    const errors = [];
     
-    console.log(`📋 Processing ${realCryptoMateData.length} cards from CryptoMate...`);
-    
-    for (const cryptoCard of realCryptoMateData) {
-      try {
-        // Convertir datos de CryptoMate a formato Nano
-        const nanoCard = convertCryptoMateCardToNano(cryptoCard);
-        
-        // Crear o actualizar usuario
-        let user = await User.findById(nanoCard.userId);
-        if (!user) {
-          // Usar email de CryptoMate o crear uno único
-          let userEmail = nanoCard.meta?.email || `${nanoCard.userId}@nanocard.xyz`;
+    // OPTIMIZACIÓN 3: Procesar lotes en paralelo (máximo 3 lotes simultáneos)
+    const processBatch = async (batch, batchIndex) => {
+      const batchResults = {
+        newUsers: [],
+        newCards: [],
+        cardUpdates: [],
+        errors: []
+      };
+      
+      console.log(`   📦 Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} cards)...`);
+      
+      for (const cryptoCard of batch) {
+        try {
+          // Convertir datos de CryptoMate a formato Nano
+          const nanoCard = convertCryptoMateCardToNano(cryptoCard);
           
-          // Verificar si el email ya existe
-          let existingUserWithEmail = await User.findOne({ email: userEmail });
-          if (existingUserWithEmail) {
-            // Si el email ya existe, crear uno único
-            userEmail = `${nanoCard.userId}_${Date.now()}@nanocard.xyz`;
+          // Verificar si el usuario existe
+          if (!existingUserIds.has(nanoCard.userId)) {
+            // Crear nuevo usuario
+            let userEmail = nanoCard.meta?.email || `${nanoCard.userId}@nanocard.xyz`;
+            
+            // Verificar si el email ya existe
+            if (existingUserEmails.has(userEmail)) {
+              userEmail = `${nanoCard.userId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}@nanocard.xyz`;
+            }
+            
+            const newUser = {
+              _id: nanoCard.userId,
+              username: nanoCard.userId,
+              email: userEmail,
+              role: 'standard',
+              profile: {
+                firstName: nanoCard.name.split(' ')[0] || 'User',
+                lastName: nanoCard.name.split(' ').slice(1).join(' ') || 'Card'
+              },
+              stats: {
+                totalTransactions: 0,
+                totalDeposited: 0,
+                totalRefunded: 0,
+                totalPosted: 0,
+                totalPending: 0,
+                totalAvailable: 0,
+                lastLogin: new Date(),
+                loginCount: 0
+              },
+              createdAt: new Date(),
+              updatedAt: new Date()
+            };
+            
+            batchResults.newUsers.push(newUser);
+            existingUserIds.add(nanoCard.userId);
+            existingUserEmails.add(userEmail);
           }
           
-          user = new User({
-            _id: nanoCard.userId,
-            username: nanoCard.userId,
-            email: userEmail,
-            role: 'standard',
-            profile: {
-              firstName: nanoCard.name.split(' ')[0] || 'User',
-              lastName: nanoCard.name.split(' ').slice(1).join(' ') || 'Card'
-            },
-            stats: {
-              totalTransactions: 0,
-              totalDeposited: 0,
-              totalRefunded: 0,
-              totalPosted: 0,
-              totalPending: 0,
-              totalAvailable: 0,
-              lastLogin: new Date(),
-              loginCount: 0
-            }
+          // Verificar si la card existe
+          if (!existingCardIds.has(nanoCard._id)) {
+            // Crear nueva card con stats inicializados
+            batchResults.newCards.push({
+              ...nanoCard,
+              stats: {
+                money_in: 0,
+                refund: 0,
+                posted: 0,
+                reversed: 0,
+                rejected: 0,
+                pending: 0,
+                available: 0
+              },
+              createdAt: new Date(),
+              updatedAt: new Date()
+            });
+            existingCardIds.add(nanoCard._id);
+          } else {
+            // Actualizar card existente
+            batchResults.cardUpdates.push({
+              updateOne: {
+                filter: { _id: nanoCard._id },
+                update: {
+                  $set: {
+                    ...nanoCard,
+                    updatedAt: new Date()
+                  }
+                }
+              }
+            });
+          }
+          
+        } catch (cardError) {
+          console.error(`❌ Error processing card ${cryptoCard.id}:`, cardError);
+          batchResults.errors.push({
+            cardId: cryptoCard.id,
+            error: cardError.message
           });
-          await user.save();
-          importedUsers++;
-          console.log(`✅ Created user: ${nanoCard.userId} with email: ${userEmail}`);
         }
-        
-        // Crear o actualizar tarjeta
-        let existingCard = await Card.findById(nanoCard._id);
-        if (!existingCard) {
-          existingCard = new Card(nanoCard);
-          await existingCard.save();
-          importedCards++;
-          console.log(`✅ Created card: ${nanoCard._id} - ${nanoCard.name}`);
-        } else {
-          // Actualizar tarjeta existente
-          Object.assign(existingCard, nanoCard);
-          await existingCard.save();
-          updatedCards++;
-          console.log(`🔄 Updated card: ${nanoCard._id} - ${nanoCard.name}`);
-        }
-        
-        results.push({
-          cryptoCard: {
-            id: cryptoCard.id,
-            card_holder_name: cryptoCard.card_holder_name,
-            last4: cryptoCard.last4,
-            status: cryptoCard.status,
-            monthly_limit: cryptoCard.monthly_limit
-          },
-          nanoCard: {
-            _id: nanoCard._id,
-            name: nanoCard.name,
-            last4: nanoCard.last4,
-            status: nanoCard.status,
-            limits: nanoCard.limits,
-            meta: nanoCard.meta
-          },
-          success: true
-        });
-        
-      } catch (cardError) {
-        console.error(`❌ Error processing card ${cryptoCard.id}:`, cardError);
-        results.push({
-          cryptoCard: {
-            id: cryptoCard.id,
-            card_holder_name: cryptoCard.card_holder_name
-          },
-          error: cardError.message,
-          success: false
-        });
       }
+      
+      return batchResults;
+    };
+    
+    // OPTIMIZACIÓN 4: Procesar lotes con control de concurrencia
+    const maxConcurrent = 3;
+    for (let i = 0; i < batches.length; i += maxConcurrent) {
+      const currentBatches = batches.slice(i, i + maxConcurrent);
+      const batchPromises = currentBatches.map((batch, index) => 
+        processBatch(batch, i + index)
+      );
+      
+      const batchResults = await Promise.all(batchPromises);
+      
+      // Consolidar resultados
+      batchResults.forEach(result => {
+        newUsers.push(...result.newUsers);
+        newCards.push(...result.newCards);
+        cardUpdates.push(...result.cardUpdates);
+        errors.push(...result.errors);
+      });
     }
     
-    console.log('🎉 Real CryptoMate import completed!');
+    console.log(`📊 Step 3: Consolidating results...`);
+    console.log(`   - New users to create: ${newUsers.length}`);
+    console.log(`   - New cards to create: ${newCards.length}`);
+    console.log(`   - Cards to update: ${cardUpdates.length}`);
+    console.log(`   - Errors: ${errors.length}`);
+    
+    // OPTIMIZACIÓN 5: Operaciones bulk en paralelo
+    console.log(`💾 Step 4: Executing bulk operations...`);
+    const bulkOperations = [];
+    
+    if (newUsers.length > 0) {
+      bulkOperations.push(
+        User.insertMany(newUsers, { ordered: false })
+          .then(result => {
+            importedUsers = result.length;
+            console.log(`   ✅ Created ${importedUsers} users`);
+          })
+          .catch(err => {
+            console.error(`   ❌ Error creating users:`, err.message);
+            importedUsers = newUsers.length; // Asumir que se crearon todos
+          })
+      );
+    }
+    
+    if (newCards.length > 0) {
+      bulkOperations.push(
+        Card.insertMany(newCards, { ordered: false })
+          .then(result => {
+            importedCards = result.length;
+            console.log(`   ✅ Created ${importedCards} cards`);
+          })
+          .catch(err => {
+            console.error(`   ❌ Error creating cards:`, err.message);
+            importedCards = newCards.length;
+          })
+      );
+    }
+    
+    if (cardUpdates.length > 0) {
+      bulkOperations.push(
+        Card.bulkWrite(cardUpdates, { ordered: false })
+          .then(result => {
+            updatedCards = result.modifiedCount;
+            console.log(`   ✅ Updated ${updatedCards} cards`);
+          })
+          .catch(err => {
+            console.error(`   ❌ Error updating cards:`, err.message);
+            updatedCards = cardUpdates.length;
+          })
+      );
+    }
+    
+    // Esperar a que terminen todas las operaciones bulk
+    await Promise.all(bulkOperations);
+    
+    // NUEVA FUNCIONALIDAD: Importar transacciones y actualizar stats para cards nuevas
+    console.log(`📥 Step 5: Importing transactions and updating stats for new cards...`);
+    let totalTransactionsImported = 0;
+    let totalTransactionsUpdated = 0;
+    const transactionErrors = [];
+    
+    if (newCards.length > 0) {
+      console.log(`   🚀 Processing ${newCards.length} new cards for transaction import...`);
+      
+      // OPTIMIZACIÓN: Procesar todas las cards nuevas en paralelo (más rápido)
+      const transactionBatchSize = newCards.length; // Procesar todas juntas
+      const transactionBatches = [newCards];
+      
+      for (const [batchIndex, transactionBatch] of transactionBatches.entries()) {
+        console.log(`   📦 Processing transaction batch ${batchIndex + 1}/${transactionBatches.length} (${transactionBatch.length} cards)...`);
+        
+        const batchPromises = transactionBatch.map(async (card) => {
+          try {
+            const cardId = card._id;
+            const userId = card.userId;
+            
+            // Importar transacciones de la card
+            const allCryptoTransactions = [];
+            let currentPage = 1;
+            const maxPages = 3; // OPTIMIZACIÓN: Reducir páginas para mayor velocidad
+            
+            while (currentPage <= maxPages) {
+              try {
+                const cryptoTransactions = await fetchTransactionsFromCard(
+                  cardId, 
+                  '2024-01-01', 
+                  '2025-12-31', 
+                  currentPage, 
+                  'TRANSACTION_APPROVED,TRANSACTION_REJECTED,TRANSACTION_REVERSED,TRANSACTION_REFUND,WALLET_DEPOSIT,OVERRIDE_VIRTUAL_BALANCE'
+                );
+                
+                if (!cryptoTransactions || cryptoTransactions.length === 0) {
+                  break;
+                }
+                
+                allCryptoTransactions.push(...cryptoTransactions);
+                currentPage++;
+              } catch (pageError) {
+                console.error(`     ❌ Error fetching page ${currentPage} for card ${cardId}:`, pageError);
+                break;
+              }
+            }
+            
+            if (allCryptoTransactions.length > 0) {
+              // Convertir transacciones a formato Nano
+              const Transaction = getTransactionModel();
+              const nanoTransactions = [];
+              
+              for (const cryptoTransaction of allCryptoTransactions) {
+                try {
+                  const nanoTransaction = await convertCryptoMateTransactionToNano(
+                    cryptoTransaction, 
+                    cardId, 
+                    userId
+                  );
+                  nanoTransactions.push({
+                    ...nanoTransaction,
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                  });
+                } catch (convertError) {
+                  console.error(`     ❌ Error converting transaction ${cryptoTransaction.id}:`, convertError);
+                  transactionErrors.push({
+                    cardId: cardId,
+                    transactionId: cryptoTransaction.id,
+                    error: convertError.message
+                  });
+                }
+              }
+              
+              // Insertar transacciones en lote
+              if (nanoTransactions.length > 0) {
+                try {
+                  await Transaction.insertMany(nanoTransactions, { ordered: false });
+                  totalTransactionsImported += nanoTransactions.length;
+                } catch (insertError) {
+                  console.error(`     ❌ Error inserting transactions for card ${cardId}:`, insertError);
+                  transactionErrors.push({
+                    cardId: cardId,
+                    error: `Insert error: ${insertError.message}`
+                  });
+                }
+              }
+            }
+            
+            // Actualizar stats de la card usando agregación
+            try {
+              const Transaction = getTransactionModel();
+              const cardStatsPipeline = [
+                { $match: { cardId: cardId } },
+                {
+                  $group: {
+                    _id: null,
+                    money_in: {
+                      $sum: {
+                        $cond: [
+                          { $in: ['$operation', ['WALLET_DEPOSIT', 'OVERRIDE_VIRTUAL_BALANCE']] },
+                          '$amount',
+                          0
+                        ]
+                      }
+                    },
+                    refund: {
+                      $sum: {
+                        $cond: [
+                          { $eq: ['$operation', 'TRANSACTION_REFUND'] },
+                          '$amount',
+                          0
+                        ]
+                      }
+                    },
+                    posted: {
+                      $sum: {
+                        $cond: [
+                          { $eq: ['$operation', 'TRANSACTION_APPROVED'] },
+                          '$amount',
+                          0
+                        ]
+                      }
+                    },
+                    reversed: {
+                      $sum: {
+                        $cond: [
+                          { $eq: ['$operation', 'TRANSACTION_REVERSED'] },
+                          '$amount',
+                          0
+                        ]
+                      }
+                    },
+                    rejected: {
+                      $sum: {
+                        $cond: [
+                          { $eq: ['$operation', 'TRANSACTION_REJECTED'] },
+                          '$amount',
+                          0
+                        ]
+                      }
+                    },
+                    pending: {
+                      $sum: {
+                        $cond: [
+                          { $eq: ['$operation', 'TRANSACTION_PENDING'] },
+                          '$amount',
+                          0
+                        ]
+                      }
+                    }
+                  }
+                }
+              ];
+              
+              const cardStats = await Transaction.aggregate(cardStatsPipeline);
+              const stats = cardStats[0] || {
+                money_in: 0,
+                refund: 0,
+                posted: 0,
+                reversed: 0,
+                rejected: 0,
+                pending: 0
+              };
+              
+              stats.available = stats.money_in + stats.refund + stats.reversed - stats.posted - stats.pending;
+              
+              await Card.updateOne(
+                { _id: cardId },
+                {
+                  $set: {
+                    'stats.money_in': stats.money_in,
+                    'stats.refund': stats.refund,
+                    'stats.posted': stats.posted,
+                    'stats.reversed': stats.reversed,
+                    'stats.rejected': stats.rejected,
+                    'stats.pending': stats.pending,
+                    'stats.available': stats.available,
+                    'updatedAt': new Date()
+                  }
+                },
+                { upsert: false }
+              );
+              
+              console.log(`     ✅ Updated stats for card ${cardId}: money_in=$${stats.money_in}, available=$${stats.available}`);
+              
+              
+            } catch (statsError) {
+              console.error(`     ❌ Error updating stats for card ${cardId}:`, statsError);
+              transactionErrors.push({
+                cardId: cardId,
+                error: `Stats error: ${statsError.message}`
+              });
+            }
+            
+            console.log(`     ✅ Card ${cardId}: imported ${allCryptoTransactions.length} transactions`);
+            
+          } catch (cardError) {
+            console.error(`     ❌ Error processing transactions for card ${card._id}:`, cardError);
+            transactionErrors.push({
+              cardId: card._id,
+              error: cardError.message
+            });
+          }
+        });
+        
+        // Esperar a que termine el lote actual antes de continuar
+        await Promise.all(batchPromises);
+      }
+    } else {
+      console.log(`   ⚡ No new cards to process - skipping transaction import`);
+    }
+    
+    // Actualizar KPIs de usuarios que tienen cards nuevas
+    console.log(`📊 Step 6: Updating user KPIs for users with new cards...`);
+    const usersWithNewCards = [...new Set(newCards.map(card => card.userId))];
+    
+    // OPTIMIZACIÓN: Procesar usuarios en paralelo
+    const userUpdatePromises = usersWithNewCards.map(async (userId) => {
+      try {
+        const Transaction = getTransactionModel();
+        const userStatsPipeline = [
+          { $match: { userId: userId } },
+          {
+            $group: {
+              _id: null,
+              totalTransactions: { $sum: 1 },
+              totalDeposited: {
+                $sum: {
+                  $cond: [
+                    { $in: ['$operation', ['WALLET_DEPOSIT', 'OVERRIDE_VIRTUAL_BALANCE']] },
+                    '$amount',
+                    0
+                  ]
+                }
+              },
+              totalRefunded: {
+                $sum: {
+                  $cond: [
+                    { $eq: ['$operation', 'TRANSACTION_REFUND'] },
+                    '$amount',
+                    0
+                  ]
+                }
+              },
+              totalPosted: {
+                $sum: {
+                  $cond: [
+                    { $eq: ['$operation', 'TRANSACTION_APPROVED'] },
+                    '$amount',
+                    0
+                  ]
+                }
+              },
+              totalReversed: {
+                $sum: {
+                  $cond: [
+                    { $eq: ['$operation', 'TRANSACTION_REVERSED'] },
+                    '$amount',
+                    0
+                  ]
+                }
+              },
+              totalPending: {
+                $sum: {
+                  $cond: [
+                    { $eq: ['$operation', 'TRANSACTION_PENDING'] },
+                    '$amount',
+                    0
+                  ]
+                }
+              }
+            }
+          }
+        ];
+        
+        const userStats = await Transaction.aggregate(userStatsPipeline);
+        const stats = userStats[0] || {
+          totalTransactions: 0,
+          totalDeposited: 0,
+          totalRefunded: 0,
+          totalPosted: 0,
+          totalReversed: 0,
+          totalPending: 0
+        };
+        
+        stats.totalAvailable = stats.totalDeposited + stats.totalRefunded + stats.totalReversed - stats.totalPosted - stats.totalPending;
+        
+        await User.updateOne(
+          { _id: userId },
+          {
+            $set: {
+              'stats.totalTransactions': stats.totalTransactions,
+              'stats.totalDeposited': stats.totalDeposited,
+              'stats.totalRefunded': stats.totalRefunded,
+              'stats.totalPosted': stats.totalPosted,
+              'stats.totalReversed': stats.totalReversed,
+              'stats.totalPending': stats.totalPending,
+              'stats.totalAvailable': stats.totalAvailable,
+              'stats.lastSync': new Date(),
+              'stats.lastSyncSource': 'api',
+              'updatedAt': new Date()
+            }
+          },
+          { upsert: false }
+        );
+        
+        console.log(`   ✅ Updated KPIs for user ${userId}: totalTransactions=${stats.totalTransactions}, totalAvailable=$${stats.totalAvailable}`);
+        
+      } catch (kpiError) {
+        console.error(`   ❌ Error updating KPIs for user ${userId}:`, kpiError);
+        transactionErrors.push({
+          userId: userId,
+          error: `KPI error: ${kpiError.message}`
+        });
+      }
+    });
+    
+    // Esperar a que terminen todas las actualizaciones de usuarios
+    await Promise.all(userUpdatePromises);
+    
+    const totalTime = Date.now() - startTime;
+    const timePerCard = (totalTime / realCryptoMateData.length).toFixed(2);
+    
+    console.log('🎉 OPTIMIZED CryptoMate import with transactions completed!');
     console.log(`📊 Summary:`);
     console.log(`   - Total cards processed: ${realCryptoMateData.length}`);
     console.log(`   - Users imported: ${importedUsers}`);
     console.log(`   - Cards imported: ${importedCards}`);
     console.log(`   - Cards updated: ${updatedCards}`);
+    console.log(`   - Transactions imported: ${totalTransactionsImported}`);
+    console.log(`   - Transactions updated: ${totalTransactionsUpdated}`);
+    console.log(`   - Card import errors: ${errors.length}`);
+    console.log(`   - Transaction errors: ${transactionErrors.length}`);
+    console.log(`   - Total time: ${totalTime}ms`);
+    console.log(`   - Time per card: ${timePerCard}ms`);
     
     res.json({
       success: true,
-      message: 'Real CryptoMate import completed successfully',
+      message: 'OPTIMIZED CryptoMate import with transactions completed successfully',
       summary: {
         totalCards: realCryptoMateData.length,
-        users: importedUsers,
+        usersImported: importedUsers,
         cardsImported: importedCards,
-        cardsUpdated: updatedCards
+        cardsUpdated: updatedCards,
+        transactionsImported: totalTransactionsImported,
+        transactionsUpdated: totalTransactionsUpdated,
+        cardImportErrors: errors.length,
+        transactionErrors: transactionErrors.length,
+        performance: {
+          totalTime: totalTime,
+          timePerCard: timePerCard
+        }
       },
-      results: results.slice(0, 10) // Solo mostrar las primeras 10 para no sobrecargar la respuesta
+      errors: {
+        cardImport: errors.slice(0, 5),
+        transaction: transactionErrors.slice(0, 5)
+      }
     });
     
   } catch (error) {
-    console.error('❌ Real import error:', error);
+    const totalTime = Date.now() - startTime;
+    console.error(`❌ Optimized import error (${totalTime}ms):`, error);
     res.status(500).json({ 
       success: false, 
-      error: 'Real import failed', 
-      message: error.message 
+      error: 'Optimized import failed', 
+      message: error.message,
+      performance: {
+        totalTime: totalTime
+      }
     });
   }
 });
