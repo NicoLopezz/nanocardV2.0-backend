@@ -45,7 +45,7 @@ const verifyLogin = async (loginName, last4, requestInfo = {}) => {
     console.log(`🔐 Attempting login with: "${loginName}" -> "${normalizedLoginName}" and last4: "${last4}"`);
     
     // OPTIMIZACIÓN: Buscar tarjeta con lean() para mejor rendimiento
-    const card = await Card.findOne({ last4: last4 }).lean();
+    const card = await Card.findOne({ last4: last4 }).lean().maxTimeMS(15000);
     
     if (!card) {
       console.log(`❌ Card not found with last4: ${last4}`);
@@ -88,7 +88,7 @@ const verifyLogin = async (loginName, last4, requestInfo = {}) => {
     }
     
     // OPTIMIZACIÓN: Obtener usuario con lean() para mejor rendimiento
-    const user = await User.findById(card.userId).lean();
+    const user = await User.findById(card.userId).lean().maxTimeMS(15000);
     if (!user) {
       console.log(`❌ User not found for card: ${card._id}`);
       return { success: false, message: 'User not found' };

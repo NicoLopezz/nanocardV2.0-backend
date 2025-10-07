@@ -186,26 +186,30 @@ router.delete('/user/:userId/complete', requireAdmin, async (req, res) => {
     
     console.log(`🗑️ Admin ${adminUser.username} attempting to delete user: ${userId}`);
     
-    // Verificar que el usuario existe
+    // Verificar si el usuario existe (pero no cortar el flujo si no existe)
     const User = getUserModel();
     const userToDelete = await User.findById(userId);
     
     if (!userToDelete) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      console.log(`⚠️ User ${userId} not found in users collection, but continuing with cleanup...`);
+    } else {
+      console.log(`✅ User found: ${userToDelete.username} (${userToDelete.email})`);
     }
     
-    // Verificar que no se está intentando borrar a sí mismo
-    if (userId === adminUser._id) {
+    // Verificar que no se está intentando borrar a sí mismo (solo si el usuario existe)
+    if (userToDelete && userId === adminUser._id) {
       return res.status(400).json({
         success: false,
         message: 'Cannot delete your own account'
       });
     }
     
-    console.log(`📊 Starting complete deletion for user: ${userToDelete.username} (${userToDelete.email})`);
+    console.log(`📊 Starting complete deletion for user ID: ${userId}`);
+    if (userToDelete) {
+      console.log(`   User details: ${userToDelete.username} (${userToDelete.email})`);
+    } else {
+      console.log(`   User not found in users collection, but will clean up related data`);
+    }
     
     const deletionStats = {
       userDeleted: false,
@@ -264,17 +268,30 @@ router.delete('/user/:userId/complete', requireAdmin, async (req, res) => {
     deletionStats.reconciliationTransactionsDeleted = reconciliationTransactionResult.deletedCount;
     console.log(`   ✅ Deleted ${reconciliationTransactionResult.deletedCount} reconciliation transactions`);
     
-    // 7. FINALMENTE, ELIMINAR EL USUARIO
+    // 7. FINALMENTE, ELIMINAR EL USUARIO (solo si existe)
     console.log('👤 Step 7: Deleting user...');
-    const userResult = await User.deleteOne({ _id: userId });
-    deletionStats.userDeleted = userResult.deletedCount > 0;
-    console.log(`   ✅ User deleted: ${userResult.deletedCount > 0}`);
+    if (userToDelete) {
+      const userResult = await User.deleteOne({ _id: userId });
+      deletionStats.userDeleted = userResult.deletedCount > 0;
+      console.log(`   ✅ User deleted: ${userResult.deletedCount > 0}`);
+    } else {
+      console.log(`   ⚠️ User not found, skipping user deletion`);
+      deletionStats.userDeleted = false;
+    }
     
     const responseTime = Date.now() - startTime;
     
-    console.log('🎉 Complete user deletion successful!');
+    if (userToDelete) {
+      console.log('🎉 Complete user deletion successful!');
+    } else {
+      console.log('🎉 Complete cleanup successful! (User was not found, but related data was cleaned up)');
+    }
     console.log(`📊 Summary:`);
-    console.log(`   - User: ${userToDelete.username} (${userToDelete.email})`);
+    if (userToDelete) {
+      console.log(`   - User: ${userToDelete.username} (${userToDelete.email})`);
+    } else {
+      console.log(`   - User: Not found (cleaned up related data)`);
+    }
     console.log(`   - Cards deleted: ${deletionStats.cardsDeleted}`);
     console.log(`   - Transactions deleted: ${deletionStats.transactionsDeleted}`);
     console.log(`   - History records deleted: ${deletionStats.historyDeleted}`);
@@ -290,8 +307,8 @@ router.delete('/user/:userId/complete', requireAdmin, async (req, res) => {
         adminUser, 
         [], 
         {
-          deletedUserName: userToDelete.username,
-          deletedUserEmail: userToDelete.email,
+        deletedUserName: userToDelete ? userToDelete.username : 'Not found',
+        deletedUserEmail: userToDelete ? userToDelete.email : 'Not found',
           deletionStats: deletionStats
         }, 
         {
@@ -307,12 +324,14 @@ router.delete('/user/:userId/complete', requireAdmin, async (req, res) => {
     
     res.json({
       success: true,
-      message: `User ${userToDelete.username} and all associated data deleted successfully`,
-      deletedUser: {
+      message: userToDelete 
+        ? `User ${userToDelete.username} and all associated data deleted successfully`
+        : `User not found, but all associated data cleaned up successfully`,
+      deletedUser: userToDelete ? {
         _id: userToDelete._id,
         username: userToDelete.username,
         email: userToDelete.email
-      },
+      } : null,
       deletionStats: deletionStats,
       responseTime: responseTime
     });

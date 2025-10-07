@@ -6,8 +6,14 @@ const cardSchema = new mongoose.Schema({
   
   // Información básica (mapeado desde CryptoMate)
   name: { type: String, required: true }, // card_holder_name de CryptoMate
-  supplier: { type: String, default: 'CryptoMate' }, // Proveedor
+  supplier: { 
+    type: String, 
+    enum: ['cryptomate', 'mercury'], 
+    default: 'cryptomate' 
+  }, // Proveedor
   last4: { type: String, required: true }, // last4 de CryptoMate
+  lastFourDigits: String, // lastFourDigits de Mercury
+  network: String, // network de Mercury (mastercard, visa, etc.)
   type: { type: String, default: 'Virtual' }, // type de CryptoMate
   
   // Estados financieros organizados en stats

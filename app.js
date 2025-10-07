@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
 const { connectDatabases } = require('./config/database');
 const config = require('./config/environment');
 const timingMiddleware = require('./middleware/timing');
@@ -10,6 +9,7 @@ const EventService = require('./services/eventService');
 // Importar rutas - APIs externas
 const cryptomateRoutes = require('./routes/api/cryptomate/index');
 const realCryptoMateRoutes = require('./routes/api/cryptomate/real');
+const mercuryRoutes = require('./routes/api/mercury/index');
 
 // Importar rutas - APIs internas
 const transactionRoutes = require('./routes/internal/transactions');
@@ -53,12 +53,6 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 100 // límite de 100 requests por IP
-});
-app.use(limiter);
 
 // Middleware de parsing
 app.use(express.json({ limit: '10mb' }));
@@ -67,6 +61,7 @@ app.use(express.urlencoded({ extended: true }));
 // Rutas - APIs externas
 app.use('/api/cryptomate', cryptomateRoutes);
 app.use('/api/real-cryptomate', realCryptoMateRoutes);
+app.use('/api', mercuryRoutes);
 
 // Rutas - APIs internas
 app.use('/api/transactions', transactionRoutes);
@@ -87,12 +82,24 @@ app.use('/api/cleanup', cleanupRoutes);
 app.use('/api/clone', cloneRoutes);
 
 // Ruta de health check
-app.get('/api/health', (req, res) => {
-  res.json({ 
-    success: true, 
-    message: 'Nano Backend is running',
-    timestamp: new Date().toISOString()
-  });
+app.get('/api/health', async (req, res) => {
+  try {
+    const { checkDatabaseHealth } = require('./config/database');
+    const dbHealth = await checkDatabaseHealth();
+    
+    res.json({ 
+      success: true, 
+      message: 'Nano Backend is running',
+      timestamp: new Date().toISOString(),
+      databases: dbHealth
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Health check failed',
+      error: error.message
+    });
+  }
 });
 
 // Middleware de manejo de errores

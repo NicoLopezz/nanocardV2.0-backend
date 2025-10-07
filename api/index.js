@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
 const { connectDatabases } = require('../config/database');
 const config = require('../config/environment');
 const timingMiddleware = require('../middleware/timing');
@@ -58,12 +57,6 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 
-// Rate limiting - más permisivo para Vercel
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 200 // límite más alto para Vercel
-});
-app.use(limiter);
 
 // Middleware de parsing
 app.use(express.json({ limit: '10mb' }));

@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const fetch = require('node-fetch');
 const { getUserModel } = require('../../../models/User');
 const { getCardModel } = require('../../../models/Card');
 const { getTransactionModel } = require('../../../models/Transaction');
@@ -336,13 +337,13 @@ router.post('/refresh-transactions/:cardId', async (req, res) => {
     
     while (currentPage <= maxPages) {
       console.log(`   📄 Fetching page ${currentPage}...`);
-      const cryptoTransactions = await fetchTransactionsFromCard(cardId, fromDate, toDate, currentPage, operations);
-      
-      if (!cryptoTransactions || cryptoTransactions.length === 0) {
+        const cryptoTransactions = await fetchTransactionsFromCard(cardId, fromDate, toDate, currentPage, operations);
+        
+        if (!cryptoTransactions || cryptoTransactions.length === 0) {
         console.log(`   📄 No more transactions on page ${currentPage}`);
-        break;
-      }
-      
+          break;
+        }
+        
       allCryptoTransactions.push(...cryptoTransactions);
       currentPage++;
     }
@@ -376,12 +377,12 @@ router.post('/refresh-transactions/:cardId', async (req, res) => {
       
       for (const cryptoTransaction of batch) {
         try {
-          const nanoTransaction = await convertCryptoMateTransactionToNano(
-            cryptoTransaction, 
-            cardId, 
-            userId
-          );
-          
+            const nanoTransaction = await convertCryptoMateTransactionToNano(
+              cryptoTransaction, 
+              cardId, 
+              userId
+            );
+            
           if (!existingTransactionIds.has(nanoTransaction._id)) {
             // Nueva transacción
             batchResults.newTransactions.push({
@@ -389,7 +390,7 @@ router.post('/refresh-transactions/:cardId', async (req, res) => {
               createdAt: new Date(),
               updatedAt: new Date()
             });
-          } else {
+            } else {
             // Actualizar transacción existente
             batchResults.transactionUpdates.push({
               updateOne: {
@@ -404,15 +405,15 @@ router.post('/refresh-transactions/:cardId', async (req, res) => {
             });
           }
           
-        } catch (transactionError) {
-          console.error(`❌ Error processing transaction ${cryptoTransaction.id}:`, transactionError);
+          } catch (transactionError) {
+            console.error(`❌ Error processing transaction ${cryptoTransaction.id}:`, transactionError);
           batchResults.errors.push({
             transactionId: cryptoTransaction.id,
             error: transactionError.message
-          });
+            });
+          }
         }
-      }
-      
+        
       return batchResults;
     };
     
@@ -745,12 +746,12 @@ router.post('/refresh-transactions/:cardId', async (req, res) => {
   }
 });
 
-// Endpoint para importar usando datos reales de CryptoMate - OPTIMIZADO
-router.post('/import-real-data', async (req, res) => {
+// Endpoint para importar cards de CryptoMate - OPTIMIZADO
+router.post('/import-cryptomate-cards', async (req, res) => {
   const startTime = Date.now();
   
   try {
-    console.log('🚀 Starting OPTIMIZED real CryptoMate import...');
+    console.log('🚀 Starting OPTIMIZED CryptoMate cards import...');
     
     // Traer TODAS las tarjetas reales de CryptoMate
     const realCryptoMateData = await fetchAllRealCards();
@@ -810,38 +811,38 @@ router.post('/import-real-data', async (req, res) => {
       console.log(`   📦 Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} cards)...`);
       
       for (const cryptoCard of batch) {
-        try {
-          // Convertir datos de CryptoMate a formato Nano
-          const nanoCard = convertCryptoMateCardToNano(cryptoCard);
-          
+      try {
+        // Convertir datos de CryptoMate a formato Nano
+        const nanoCard = convertCryptoMateCardToNano(cryptoCard);
+        
           // Verificar si el usuario existe
           if (!existingUserIds.has(nanoCard.userId)) {
             // Crear nuevo usuario
-            let userEmail = nanoCard.meta?.email || `${nanoCard.userId}@nanocard.xyz`;
-            
-            // Verificar si el email ya existe
+          let userEmail = nanoCard.meta?.email || `${nanoCard.userId}@nanocard.xyz`;
+          
+          // Verificar si el email ya existe
             if (existingUserEmails.has(userEmail)) {
               userEmail = `${nanoCard.userId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}@nanocard.xyz`;
             }
             
             const newUser = {
-              _id: nanoCard.userId,
-              username: nanoCard.userId,
-              email: userEmail,
-              role: 'standard',
-              profile: {
-                firstName: nanoCard.name.split(' ')[0] || 'User',
-                lastName: nanoCard.name.split(' ').slice(1).join(' ') || 'Card'
-              },
-              stats: {
-                totalTransactions: 0,
-                totalDeposited: 0,
-                totalRefunded: 0,
-                totalPosted: 0,
-                totalPending: 0,
-                totalAvailable: 0,
-                lastLogin: new Date(),
-                loginCount: 0
+            _id: nanoCard.userId,
+            username: nanoCard.userId,
+            email: userEmail,
+            role: 'standard',
+            profile: {
+              firstName: nanoCard.name.split(' ')[0] || 'User',
+              lastName: nanoCard.name.split(' ').slice(1).join(' ') || 'Card'
+            },
+            stats: {
+              totalTransactions: 0,
+              totalDeposited: 0,
+              totalRefunded: 0,
+              totalPosted: 0,
+              totalPending: 0,
+              totalAvailable: 0,
+              lastLogin: new Date(),
+              loginCount: 0
               },
               createdAt: new Date(),
               updatedAt: new Date()
@@ -1168,8 +1169,8 @@ router.post('/import-real-data', async (req, res) => {
             }
             
             console.log(`     ✅ Card ${cardId}: imported ${allCryptoTransactions.length} transactions`);
-            
-          } catch (cardError) {
+        
+      } catch (cardError) {
             console.error(`     ❌ Error processing transactions for card ${card._id}:`, cardError);
             transactionErrors.push({
               cardId: card._id,
@@ -1297,6 +1298,59 @@ router.post('/import-real-data', async (req, res) => {
     const timePerCard = (totalTime / realCryptoMateData.length).toFixed(2);
     
     console.log('🎉 OPTIMIZED CryptoMate import with transactions completed!');
+    // NUEVO PASO: Refresh stats para todas las cards procesadas
+    console.log(`📊 Step 7: Refreshing stats for all processed cards...`);
+    let statsRefreshed = 0;
+    const statsErrors = [];
+    
+    // Obtener todas las cards que fueron procesadas (nuevas y actualizadas)
+    const allProcessedCards = [...newCards, ...cardUpdates.map(update => update.updateOne.filter._id)];
+    
+    if (allProcessedCards.length > 0) {
+      console.log(`   🔄 Refreshing stats for ${allProcessedCards.length} cards...`);
+      
+      // Procesar stats en lotes para mejor rendimiento
+      const statsBatchSize = 10;
+      for (let i = 0; i < allProcessedCards.length; i += statsBatchSize) {
+        const batch = allProcessedCards.slice(i, i + statsBatchSize);
+        
+        const batchPromises = batch.map(async (card) => {
+          try {
+            const cardId = card._id || card;
+            
+            // Usar el endpoint interno de stats para refresh
+            const statsUrl = `http://localhost:3001/api/stats/cards/${cardId}/refresh`;
+            const response = await fetch(statsUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' }
+            });
+            
+            if (response.ok) {
+              statsRefreshed++;
+              console.log(`     ✅ Stats refreshed for card ${cardId}`);
+            } else {
+              throw new Error(`HTTP ${response.status}`);
+            }
+          } catch (statsError) {
+            console.error(`     ❌ Error refreshing stats for card ${card._id || card}:`, statsError.message);
+            statsErrors.push({
+              cardId: card._id || card,
+              error: statsError.message
+            });
+          }
+        });
+        
+        await Promise.all(batchPromises);
+      }
+      
+      console.log(`   ✅ Stats refreshed for ${statsRefreshed} cards`);
+      if (statsErrors.length > 0) {
+        console.log(`   ⚠️ Stats errors: ${statsErrors.length}`);
+      }
+    } else {
+      console.log(`   ⚡ No cards to refresh stats`);
+    }
+    
     console.log(`📊 Summary:`);
     console.log(`   - Total cards processed: ${realCryptoMateData.length}`);
     console.log(`   - Users imported: ${importedUsers}`);
@@ -1304,14 +1358,16 @@ router.post('/import-real-data', async (req, res) => {
     console.log(`   - Cards updated: ${updatedCards}`);
     console.log(`   - Transactions imported: ${totalTransactionsImported}`);
     console.log(`   - Transactions updated: ${totalTransactionsUpdated}`);
+    console.log(`   - Stats refreshed: ${statsRefreshed}`);
     console.log(`   - Card import errors: ${errors.length}`);
     console.log(`   - Transaction errors: ${transactionErrors.length}`);
+    console.log(`   - Stats errors: ${statsErrors.length}`);
     console.log(`   - Total time: ${totalTime}ms`);
     console.log(`   - Time per card: ${timePerCard}ms`);
     
     res.json({
       success: true,
-      message: 'OPTIMIZED CryptoMate import with transactions completed successfully',
+      message: 'OPTIMIZED CryptoMate import with transactions and stats completed successfully',
       summary: {
         totalCards: realCryptoMateData.length,
         usersImported: importedUsers,
@@ -1319,8 +1375,10 @@ router.post('/import-real-data', async (req, res) => {
         cardsUpdated: updatedCards,
         transactionsImported: totalTransactionsImported,
         transactionsUpdated: totalTransactionsUpdated,
+        statsRefreshed: statsRefreshed,
         cardImportErrors: errors.length,
         transactionErrors: transactionErrors.length,
+        statsErrors: statsErrors.length,
         performance: {
           totalTime: totalTime,
           timePerCard: timePerCard
@@ -1328,7 +1386,8 @@ router.post('/import-real-data', async (req, res) => {
       },
       errors: {
         cardImport: errors.slice(0, 5),
-        transaction: transactionErrors.slice(0, 5)
+        transaction: transactionErrors.slice(0, 5),
+        stats: statsErrors.slice(0, 5)
       }
     });
     

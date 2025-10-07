@@ -62,7 +62,7 @@ const convertCryptoMateCardToNano = (cryptoCard) => {
     _id: cryptoCard.id, // ID único de CryptoMate
     userId: cryptoCard.id, // Usar el ID de la tarjeta como userId (será el mismo que el _id)
     name: cryptoCard.card_holder_name, // Nombre del titular de la tarjeta
-    supplier: 'CryptoMate', // Proveedor
+    supplier: 'cryptomate', // Proveedor
     last4: cryptoCard.last4, // Últimos 4 dígitos
     type: cryptoCard.type || 'Virtual', // Tipo de tarjeta
     

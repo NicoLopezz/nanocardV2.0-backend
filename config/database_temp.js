@@ -34,42 +34,20 @@ const connectDatabases = async () => {
       dbConfig.connection = await mongoose.createConnection(dbConfig.uri, {
         useNewUrlParser: true,
         useUnifiedTopology: true,
-        serverSelectionTimeoutMS: 30000,     // ✅ Aumentar timeout a 30s
-        socketTimeoutMS: 45000,              // ✅ Aumentar timeout a 45s
-        connectTimeoutMS: 30000,             // ✅ Aumentar timeout de conexión a 30s
-        maxPoolSize: 10,                     // ✅ Más conexiones en pool
-        minPoolSize: 2,                      // ✅ Mantener más conexiones mínimas
-        maxIdleTimeMS: 300000,               // ✅ 5 minutos idle
+        serverSelectionTimeoutMS: 10000,     // ✅ Aumentar timeout
+        socketTimeoutMS: 30000,              // ✅ Reducir timeout
+        connectTimeoutMS: 10000,             // ✅ Aumentar timeout de conexión
+        maxPoolSize: 5,                      // ✅ Más conexiones en pool
+        minPoolSize: 1,                      // ✅ Mantener conexiones mínimas
+        maxIdleTimeMS: 60000,                // ✅ Aumentar tiempo idle
         retryWrites: true,
-        w: 'majority',
-        bufferCommands: false                // ✅ Deshabilitar buffering
+        w: 'majority'
       });
-      
-      // ✅ Manejo de eventos de conexión
-      dbConfig.connection.on('connected', () => {
-        console.log(`✅ ${name} database connected`);
-      });
-      
-      dbConfig.connection.on('error', (err) => {
-        console.error(`❌ ${name} database error:`, err);
-      });
-      
-      dbConfig.connection.on('disconnected', () => {
-        console.warn(`⚠️ ${name} database disconnected`);
-      });
-      
-      dbConfig.connection.on('reconnected', () => {
-        console.log(`🔄 ${name} database reconnected`);
-      });
-      
       console.log(`✅ Connected to ${name} database`);
     }
   } catch (error) {
     console.error('❌ Database connection error:', error);
-    console.error('❌ Retrying connection in 5 seconds...');
-    setTimeout(() => {
-      connectDatabases();
-    }, 5000);
+    process.exit(1);
   }
 };
 
@@ -80,25 +58,6 @@ const getTransactionsConnection = () => databases.transactions.connection;
 const getHistoryConnection = () => databases.history.connection;
 const getReconciliationsConnection = () => databases.reconciliations.connection;
 const getSynclogConnection = () => databases.synclog.connection;
-
-// Función para verificar el estado de las conexiones
-const checkDatabaseHealth = async () => {
-  const health = {};
-  
-  for (const [name, dbConfig] of Object.entries(databases)) {
-    try {
-      if (dbConfig.connection && dbConfig.connection.readyState === 1) {
-        health[name] = { status: 'connected', readyState: dbConfig.connection.readyState };
-      } else {
-        health[name] = { status: 'disconnected', readyState: dbConfig.connection?.readyState || 0 };
-      }
-    } catch (error) {
-      health[name] = { status: 'error', error: error.message };
-    }
-  }
-  
-  return health;
-};
 
 // Función para cerrar todas las conexiones
 const closeDatabaseConnections = async () => {
@@ -118,7 +77,6 @@ module.exports = {
   databases, 
   connectDatabases, 
   closeDatabaseConnections,
-  checkDatabaseHealth,
   getUsersConnection,
   getCardsConnection,
   getTransactionsConnection,

@@ -55,7 +55,6 @@ const transactionSchema = new mongoose.Schema({
   // Campos para cadena de transacciones Mercury
   originalTransactionId: String, // ID de la transacción original (para fees)
   mercuryKind: String, // Tipo de transacción de Mercury (cardInternationalTransactionFee, debitCardTransaction, etc.)
-  rawDate: String, // Fecha original de Mercury (ISO string) para preservar el dato original
   credit: { type: Boolean, default: false },
   comentario: String,
   originalMovementId: String, // ID del movimiento original en old_db para depósitos manuales
