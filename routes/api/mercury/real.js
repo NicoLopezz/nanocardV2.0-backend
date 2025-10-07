@@ -1,12 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const fetch = require('node-fetch');
+const StatsRefreshService = require('../../../services/statsRefreshService');
 const mercuryService = require('../../../services/mercuryService');
 const { getUserModel } = require('../../../models/User');
 const { getCardModel } = require('../../../models/Card');
 const { getTransactionModel } = require('../../../models/Transaction');
 const { connectDatabases, closeDatabaseConnections } = require('../../../config/database');
-const StatsRefreshService = require('../../../services/statsRefreshService');
 
 // Endpoint para importar cards de Mercury - OPTIMIZADO
 router.post('/import-mercury-cards', async (req, res) => {
@@ -171,109 +171,11 @@ router.post('/import-mercury-cards', async (req, res) => {
       totalErrors += allBatchErrors.length;
     }
     
-    // NUEVO PASO: Importar transacciones para cards nuevas
-    console.log(`📥 Step 4: Importing transactions for new Mercury cards...`);
+    // OPTIMIZACIÓN: Eliminar Step 4 - pull-movs-today trae todas las transacciones
+    console.log(`⚡ OPTIMIZED: Skipping individual transaction import - pull-movs-today will handle all transactions`);
     let totalTransactionsImported = 0;
     let totalTransactionsUpdated = 0;
     const transactionErrors = [];
-    
-    if (totalCardsImported > 0) {
-      console.log(`   🚀 Processing ${totalCardsImported} new cards for transaction import...`);
-      
-      // Obtener las cards que fueron importadas
-      const newCards = await Card.find({ 
-        supplier: 'mercury',
-        createdAt: { $gte: new Date(Date.now() - 5 * 60 * 1000) } // Cards creadas en los últimos 5 minutos
-      });
-      
-      console.log(`   📊 Found ${newCards.length} recently created Mercury cards`);
-      
-      for (const card of newCards) {
-        try {
-          console.log(`   🔄 Importing transactions for card ${card._id}...`);
-          
-          // Importar transacciones usando el servicio de Mercury
-          // Como no hay getCardTransactions, obtenemos todas las transacciones y filtramos
-          const allMercuryTransactions = await mercuryService.getAllTransactions();
-          
-          // Filtrar transacciones que pertenecen a esta card específica
-          const cardTransactions = allMercuryTransactions.filter(tx => {
-            // Buscar cardId en details.debitCardInfo.id
-            const txCardId = tx.details?.debitCardInfo?.id;
-            return txCardId === card._id;
-          });
-          
-          if (cardTransactions && cardTransactions.length > 0) {
-            console.log(`     📊 Found ${cardTransactions.length} transactions for card ${card._id}`);
-            
-            // Convertir transacciones a formato Nano
-            const Transaction = getTransactionModel();
-            const nanoTransactions = [];
-            
-            for (const mercuryTransaction of cardTransactions) {
-              try {
-                const nanoTransaction = mercuryService.convertMercuryTransactionToNano(
-                  mercuryTransaction, 
-                  card._id, 
-                  card.userId
-                );
-                
-                // Verificar si la transacción ya existe
-                const existingTransaction = await Transaction.findOne({
-                  _id: nanoTransaction._id
-                });
-                
-                if (!existingTransaction) {
-                  nanoTransactions.push({
-                    ...nanoTransaction,
-                    createdAt: new Date(),
-                    updatedAt: new Date()
-                  });
-                } else {
-                  // Actualizar transacción existente
-                  await Transaction.updateOne(
-                    { _id: nanoTransaction._id },
-                    { 
-                      $set: { 
-                        ...nanoTransaction,
-                        updatedAt: new Date()
-                      }
-                    }
-                  );
-                  totalTransactionsUpdated++;
-                }
-              } catch (convertError) {
-                console.error(`     ❌ Error converting transaction:`, convertError.message);
-                transactionErrors.push({
-                  cardId: card._id,
-                  transactionId: mercuryTransaction.id,
-                  error: convertError.message
-                });
-              }
-            }
-            
-            // Insertar transacciones nuevas
-            if (nanoTransactions.length > 0) {
-              await Transaction.insertMany(nanoTransactions, { ordered: false });
-              totalTransactionsImported += nanoTransactions.length;
-              console.log(`     ✅ Imported ${nanoTransactions.length} transactions for card ${card._id}`);
-            }
-            
-          } else {
-            console.log(`     ⚠️ No transactions found for card ${card._id}`);
-          }
-          
-        } catch (cardError) {
-          console.error(`   ❌ Error importing transactions for card ${card._id}:`, cardError.message);
-          transactionErrors.push({
-            cardId: card._id,
-            error: cardError.message
-          });
-        }
-      }
-    } else {
-      console.log(`   ⚡ No new cards to process - skipping transaction import`);
-    }
     
     // NUEVO PASO: Ejecutar pull-movs-today para traer todas las transacciones
     console.log(`📥 Step 5: Executing pull-movs-today to import all Mercury transactions...`);
@@ -281,9 +183,10 @@ router.post('/import-mercury-cards', async (req, res) => {
     const pullMovsErrors = [];
     
     try {
-      console.log(`   🚀 Calling pull-movs-today endpoint...`);
+      console.log(`   🚀 Calling pull-movs-today OPTIMIZED endpoint...`);
       
-      const pullMovsUrl = `http://localhost:3001/api/real-mercury/pull-movs-today`;
+      // OPTIMIZACIÓN: Usar endpoint optimizado con procesamiento en paralelo
+      const pullMovsUrl = `http://localhost:3001/api/real-mercury/pull-movs-today-optimized`;
       const response = await fetch(pullMovsUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
@@ -291,15 +194,16 @@ router.post('/import-mercury-cards', async (req, res) => {
       
       if (response.ok) {
         pullMovsResult = await response.json();
-        console.log(`   ✅ pull-movs-today executed successfully`);
+        console.log(`   ✅ pull-movs-today OPTIMIZED executed successfully`);
         console.log(`   📊 Total time: ${pullMovsResult.summary?.totalTime || 'N/A'}ms`);
+        console.log(`   ⚡ OPTIMIZATION: Parallel processing enabled`);
       } else {
         throw new Error(`HTTP ${response.status}`);
       }
     } catch (pullMovsError) {
-      console.error(`   ❌ Error executing pull-movs-today:`, pullMovsError.message);
+      console.error(`   ❌ Error executing pull-movs-today OPTIMIZED:`, pullMovsError.message);
       pullMovsErrors.push({
-        step: 'pull-movs-today',
+        step: 'pull-movs-today-optimized',
         error: pullMovsError.message
       });
     }
@@ -315,8 +219,8 @@ router.post('/import-mercury-cards', async (req, res) => {
     if (allMercuryCards.length > 0) {
       console.log(`   🔄 Refreshing stats for ${allMercuryCards.length} Mercury cards...`);
       
-      // Procesar stats en lotes para mejor rendimiento
-      const statsBatchSize = 10;
+      // OPTIMIZACIÓN: Procesar stats en lotes más grandes para mejor rendimiento
+      const statsBatchSize = 30;
       for (let i = 0; i < allMercuryCards.length; i += statsBatchSize) {
         const batch = allMercuryCards.slice(i, i + statsBatchSize);
         
@@ -324,19 +228,11 @@ router.post('/import-mercury-cards', async (req, res) => {
           try {
             const cardId = card._id;
             
-            // Usar el endpoint interno de stats para refresh
-            const statsUrl = `http://localhost:3001/api/stats/cards/${cardId}/refresh`;
-            const response = await fetch(statsUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' }
-            });
+            // OPTIMIZACIÓN: Usar servicio directo en lugar de HTTP
+            await StatsRefreshService.refreshCardStats(cardId);
             
-            if (response.ok) {
-              statsRefreshed++;
-              console.log(`     ✅ Stats refreshed for card ${cardId}`);
-            } else {
-              throw new Error(`HTTP ${response.status}`);
-            }
+            statsRefreshed++;
+            console.log(`     ✅ Stats refreshed for card ${cardId}`);
           } catch (statsError) {
             console.error(`     ❌ Error refreshing stats for card ${card._id}:`, statsError.message);
             statsErrors.push({
@@ -1249,6 +1145,51 @@ router.post('/pull-movs-today', async (req, res) => {
       summary: {
         totalTime: totalTime,
         executedAt: new Date().toISOString()
+      }
+    });
+  }
+});
+
+// Endpoint OPTIMIZADO para ejecutar el script pull-movs-today con procesamiento en paralelo
+router.post('/pull-movs-today-optimized', async (req, res) => {
+  const startTime = Date.now();
+  
+  try {
+    console.log('🚀 Iniciando pull-movs-today OPTIMIZED endpoint...');
+    console.log('⚡ OPTIMIZACIÓN: Procesamiento en paralelo habilitado');
+    
+    // Importar el script optimizado
+    const { pullMovsTodayOptimized } = require('../../../scripts/pull-movs-today-optimized');
+    
+    // Ejecutar el script optimizado
+    await pullMovsTodayOptimized();
+    
+    const endTime = Date.now();
+    const totalTime = endTime - startTime;
+    
+    res.json({
+      success: true,
+      message: 'pull-movs-today OPTIMIZED executed successfully',
+      summary: {
+        totalTime: totalTime,
+        executedAt: new Date().toISOString(),
+        optimization: 'Parallel processing enabled'
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error executing pull-movs-today OPTIMIZED:', error);
+    
+    const endTime = Date.now();
+    const totalTime = endTime - startTime;
+    
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      summary: {
+        totalTime: totalTime,
+        executedAt: new Date().toISOString(),
+        optimization: 'Parallel processing failed'
       }
     });
   }
