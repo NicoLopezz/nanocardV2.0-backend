@@ -158,4 +158,50 @@ router.post('/cards/batch/refresh', async (req, res) => {
   }
 });
 
+router.post('/cards/refresh-all', async (req, res) => {
+  try {
+    const { getCardModel } = require('../../models/Card');
+    const Card = getCardModel();
+    
+    const allCards = await Card.find({}).select('_id name');
+    
+    console.log(`🔄 Refrescando stats de ${allCards.length} tarjetas...`);
+    
+    const results = [];
+    let successCount = 0;
+    let errorCount = 0;
+    
+    for (const card of allCards) {
+      try {
+        await StatsRefreshService.refreshCardStats(card._id);
+        results.push({ cardId: card._id, name: card.name, success: true });
+        successCount++;
+        
+        if (successCount % 10 === 0) {
+          console.log(`✅ Procesadas ${successCount}/${allCards.length} tarjetas`);
+        }
+      } catch (error) {
+        results.push({ cardId: card._id, name: card.name, success: false, error: error.message });
+        errorCount++;
+      }
+    }
+    
+    console.log(`✅ Proceso completado: ${successCount} exitosas, ${errorCount} errores`);
+    
+    res.json({ 
+      success: true, 
+      message: `Stats refresh completed for all cards`,
+      summary: {
+        total: allCards.length,
+        successful: successCount,
+        errors: errorCount
+      },
+      results 
+    });
+  } catch (error) {
+    console.error('❌ Error refrescando todas las cards:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;

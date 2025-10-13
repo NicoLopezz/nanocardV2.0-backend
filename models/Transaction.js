@@ -26,6 +26,9 @@ const transactionSchema = new mongoose.Schema({
   version: { type: Number, default: 1 },
   isDeleted: { type: Boolean, default: false },
   reconciled: { type: Boolean, default: false },
+  reconciledAt: { type: Date },
+  reconciledBy: { type: String },
+  reconciliationId: { type: String },
   
   // Tipo de operación de CryptoMate (MUY IMPORTANTE)
   operation: {
@@ -69,7 +72,7 @@ const transactionSchema = new mongoose.Schema({
   merchant_name: String,
   original_balance: Number,
   new_balance: Number,
-  decline_reason: String,
+  decline_reason: mongoose.Schema.Types.Mixed,
   
   // Campos contables para WALLET_DEPOSIT
   gross_amount: Number,
@@ -84,11 +87,12 @@ const transactionSchema = new mongoose.Schema({
   // Historial de cambios (para auditoría)
   history: [{
     version: Number,
-    action: String, // 'created', 'updated', 'deleted', 'restored'
+    action: String, // 'created', 'updated', 'deleted', 'restored', 'reconciled'
     timestamp: Date,
     modifiedBy: String,
     reason: String,
-    changes: mongoose.Schema.Types.Mixed
+    changes: mongoose.Schema.Types.Mixed,
+    reconciliationId: String // ID de la reconciliación cuando la acción es 'reconciled'
   }]
 }, {
   timestamps: true,

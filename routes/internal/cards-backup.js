@@ -1595,7 +1595,7 @@ router.post('/card/:cardId/transactions', authenticateToken, async (req, res) =>
       amount: parseFloat(amount),
       date: date,
       time: time,
-      status: operation === 'TRANSACTION_APPROVED' ? 'SUCCESS' : 'Completed',
+      status: 'SUCCESS',
       operation: operation,
       credit: isCredit,
       comentario: comentario,

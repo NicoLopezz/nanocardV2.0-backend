@@ -201,6 +201,24 @@ router.get('/admin/all', authenticateToken, async (req, res) => {
       };
     });
 
+    // Obtener el timestamp del último refresh-all-cards-stats
+    let lastRefreshTimestamp = null;
+    try {
+      const { getHistoryConnection } = require('../../config/database');
+      const historyConnection = getHistoryConnection();
+      const refreshCollection = historyConnection.db.collection('refresh-all-cards-stats');
+      
+      const lastRefresh = await refreshCollection
+        .findOne({}, { sort: { timestamp: -1 } });
+      
+      if (lastRefresh) {
+        lastRefreshTimestamp = lastRefresh.timestamp;
+        console.log(`📊 Last refresh timestamp: ${lastRefreshTimestamp}`);
+      }
+    } catch (refreshError) {
+      console.error(`❌ Error fetching last refresh timestamp:`, refreshError.message);
+    }
+
     const responseTime = Date.now() - startTime;
     console.log(`✅ Admin all cards (ALL without pagination) fetched in ${responseTime}ms - Total: ${cards.length}`);
 
@@ -208,6 +226,7 @@ router.get('/admin/all', authenticateToken, async (req, res) => {
       success: true,
       cards: enrichedCards,
       total: cards.length,
+      lastRefreshTimestamp: lastRefreshTimestamp,
       responseTime: responseTime
     });
 
@@ -696,8 +715,6 @@ router.put('/card/:cardId', authenticateToken, async (req, res) => {
       { $set: updateData },
       { new: true, runValidators: true }
     );
-
-    console.log(`✅ Card ${cardId} updated successfully`);
 
     res.json({
       success: true,
@@ -1734,7 +1751,7 @@ router.post('/card/:cardId/transactions', authenticateToken, async (req, res) =>
       amount: parseFloat(amount),
       date: date,
       time: time,
-      status: operation === 'TRANSACTION_APPROVED' ? 'SUCCESS' : 'Completed',
+      status: 'SUCCESS',
       operation: operation,
       credit: isCredit,
       comentario: finalComentario,

@@ -91,6 +91,7 @@ const recalculateCardStats = async (cardId) => {
     card.refunded = totalRefunded;
     card.posted = totalPosted;
     card.pending = totalPending;
+    // CORRECTO: Los pending SÍ se restan del available (dinero pendiente no está disponible)
     card.available = totalDeposited + totalRefunded - totalPosted - totalPending - totalWithdrawal;
     
     // Actualizar stats adicionales
@@ -114,18 +115,6 @@ const recalculateCardStats = async (cardId) => {
     };
     
     await card.save();
-    
-    console.log(`✅ Card stats recalculated for ${cardId}:`);
-    console.log(`   - Total transactions: ${stats.totalTransactions}`);
-    console.log(`   - Deposited: $${totalDeposited}`);
-    console.log(`   - Refunded: $${totalRefunded}`);
-    console.log(`   - Posted: $${totalPosted}`);
-    console.log(`   - Pending: $${totalPending}`);
-    console.log(`   - Withdrawal: $${totalWithdrawal}`);
-    console.log(`   - Reversed: $${totalReversed}`);
-    console.log(`   - Rejected: $${totalRejected}`);
-    console.log(`   - Available: $${card.available}`);
-    console.log(`   - By operation:`, stats.byOperation);
     
     return {
       success: true,

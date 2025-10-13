@@ -19,7 +19,9 @@ class StatsRefreshService {
       const amount = transactionData.amount;
       const multiplier = action === 'create' ? 1 : (action === 'delete' ? -1 : 0);
       
-      if (multiplier === 0) return; // No changes for update
+      if (multiplier === 0) {
+        return;
+      }
       
       // Actualizar contadores
       user.stats.totalTransactions += multiplier;
@@ -52,12 +54,9 @@ class StatsRefreshService {
           break;
       }
       
-      // Recalcular available
       user.stats.totalAvailable = user.stats.totalDeposited + user.stats.totalRefunded - user.stats.totalPosted - user.stats.totalPending;
       
       await user.save();
-      
-      console.log(`✅ User stats refreshed for user ${userId} - Action: ${action}`);
       
     } catch (error) {
       console.error('❌ Error refreshing user stats:', error);
@@ -65,11 +64,9 @@ class StatsRefreshService {
     }
   }
   
-  // Actualizar stats de la tarjeta cuando hay cambios en transacciones
   static async refreshCardStats(cardId) {
     try {
       await recalculateCardStats(cardId);
-      console.log(`✅ Card stats refreshed for card ${cardId}`);
     } catch (error) {
       console.error('❌ Error refreshing card stats:', error);
       throw error;
@@ -79,14 +76,8 @@ class StatsRefreshService {
   // Actualizar stats completas (usuario + tarjeta) cuando hay cambios en transacciones
   static async refreshAllStats(userId, cardId, transactionData, action = 'create') {
     try {
-      // Actualizar stats del usuario
       await this.refreshUserStats(userId, transactionData, action);
-      
-      // Actualizar stats de la tarjeta
       await this.refreshCardStats(cardId);
-      
-      console.log(`✅ All stats refreshed - User: ${userId}, Card: ${cardId}, Action: ${action}`);
-      
     } catch (error) {
       console.error('❌ Error refreshing all stats:', error);
       throw error;
@@ -156,6 +147,7 @@ class StatsRefreshService {
       }
       
       // Recalcular available
+      // CORRECTO: Los pending SÍ se restan del available (dinero pendiente no está disponible)
       user.stats.totalAvailable = user.stats.totalDeposited + user.stats.totalRefunded - user.stats.totalPosted - user.stats.totalPending;
       
       await user.save();

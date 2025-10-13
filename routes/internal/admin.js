@@ -349,5 +349,175 @@ router.delete('/user/:userId/complete', requireAdmin, async (req, res) => {
   }
 });
 
+// Endpoint para eliminar una transacción específica y actualizar stats
+router.delete('/transaction/:transactionId/complete', requireAdmin, async (req, res) => {
+  const startTime = Date.now();
+  
+  try {
+    const { transactionId } = req.params;
+    const adminUser = req.user;
+    
+    console.log(`🗑️ Admin ${adminUser.username} attempting to delete transaction: ${transactionId}`);
+    
+    // Step 1: Buscar la transacción en la base de datos
+    console.log('🔍 Step 1: Searching for transaction...');
+    const Transaction = getTransactionModel();
+    const transactionToDelete = await Transaction.findById(transactionId);
+    
+    if (!transactionToDelete) {
+      return res.status(404).json({
+        success: false,
+        message: 'Transaction not found'
+      });
+    }
+    
+    console.log(`✅ Transaction found: ${transactionToDelete.name} - $${transactionToDelete.amount}`);
+    console.log(`   Card ID: ${transactionToDelete.cardId}`);
+    console.log(`   User ID: ${transactionToDelete.userId}`);
+    console.log(`   Operation: ${transactionToDelete.operation}`);
+    
+    // Step 2: Guardar datos de la transacción antes de eliminar
+    const transactionData = {
+      _id: transactionToDelete._id,
+      name: transactionToDelete.name,
+      amount: transactionToDelete.amount,
+      operation: transactionToDelete.operation,
+      cardId: transactionToDelete.cardId,
+      userId: transactionToDelete.userId,
+      date: transactionToDelete.date,
+      status: transactionToDelete.status
+    };
+    
+    console.log('💾 Step 2: Transaction data saved for logging');
+    
+    // Step 3: Eliminar la transacción
+    console.log('🗑️ Step 3: Deleting transaction from database...');
+    const deleteResult = await Transaction.deleteOne({ _id: transactionId });
+    
+    if (deleteResult.deletedCount === 0) {
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to delete transaction'
+      });
+    }
+    
+    console.log(`✅ Transaction deleted successfully`);
+    
+    // Step 4: Actualizar stats de la card asociada (manejar eliminación correctamente)
+    console.log('📊 Step 4: Updating card stats for deleted transaction...');
+    let statsUpdated = false;
+    let statsError = null;
+    
+    try {
+      const StatsRefreshService = require('../../services/statsRefreshService');
+      
+      console.log(`🔍 DEBUG: About to refresh stats with:`);
+      console.log(`   - User ID: ${transactionData.userId}`);
+      console.log(`   - Card ID: ${transactionData.cardId}`);
+      console.log(`   - Operation: ${transactionData.operation}`);
+      console.log(`   - Amount: $${transactionData.amount}`);
+      console.log(`   - Action: delete`);
+      
+      // OPTIMIZACIÓN: Intentar actualizar stats del usuario primero, si falla, solo actualizar card
+      try {
+        console.log(`🔄 Attempting to refresh user stats...`);
+        await StatsRefreshService.refreshUserStats(
+          transactionData.userId, 
+          transactionData, 
+          'delete'
+        );
+        console.log(`✅ User stats updated successfully`);
+      } catch (userStatsError) {
+        console.warn(`⚠️ User stats update failed (user may not exist):`, userStatsError.message);
+        console.log(`   - Continuing with card stats update only...`);
+      }
+      
+      // SIEMPRE actualizar stats de la card (independientemente del usuario)
+      console.log(`🔄 Updating card stats...`);
+      await StatsRefreshService.refreshCardStats(transactionData.cardId);
+      console.log(`✅ Card stats updated successfully`);
+      
+      statsUpdated = true;
+      console.log(`✅ Stats updated for deleted transaction: ${transactionData.name}`);
+      console.log(`   - User ID: ${transactionData.userId}`);
+      console.log(`   - Card ID: ${transactionData.cardId}`);
+      console.log(`   - Operation: ${transactionData.operation}`);
+      console.log(`   - Amount: $${transactionData.amount}`);
+      
+    } catch (statsError) {
+      console.error(`❌ Error updating stats for deleted transaction:`, statsError.message);
+      console.error(`❌ Full error:`, statsError);
+      statsError = statsError.message;
+    }
+    
+    const responseTime = Date.now() - startTime;
+    
+    // Log en historial centralizado
+    try {
+      const { logToHistory } = require('../../services/historyService');
+      await logToHistory(
+        'Transaction', 
+        transactionId, 
+        adminUser, 
+        [], 
+        {
+          deletedTransactionName: transactionData.name,
+          deletedTransactionAmount: transactionData.amount,
+          deletedTransactionOperation: transactionData.operation,
+          associatedCardId: transactionData.cardId,
+          associatedUserId: transactionData.userId,
+          statsUpdated: statsUpdated,
+          statsError: statsError
+        }, 
+        {
+          method: 'DELETE',
+          endpoint: `/api/admin/transaction/${transactionId}/complete`,
+          statusCode: 200,
+          responseTime: responseTime
+        }
+      );
+    } catch (historyError) {
+      console.error('❌ Error logging transaction deletion to history:', historyError);
+    }
+    
+    console.log('🎉 Transaction deletion completed successfully!');
+    console.log(`📊 Summary:`);
+    console.log(`   - Transaction: ${transactionData.name} ($${transactionData.amount})`);
+    console.log(`   - Card ID: ${transactionData.cardId}`);
+    console.log(`   - Stats updated: ${statsUpdated ? 'Yes' : 'No'}`);
+    if (statsError) {
+      console.log(`   - Stats error: ${statsError}`);
+    }
+    console.log(`   - Response time: ${responseTime}ms`);
+    
+    res.json({
+      success: true,
+      message: `Transaction ${transactionData.name} deleted successfully`,
+      deletedTransaction: {
+        _id: transactionData._id,
+        name: transactionData.name,
+        amount: transactionData.amount,
+        operation: transactionData.operation,
+        cardId: transactionData.cardId,
+        userId: transactionData.userId
+      },
+      statsUpdated: statsUpdated,
+      statsError: statsError,
+      responseTime: responseTime
+    });
+    
+  } catch (error) {
+    const responseTime = Date.now() - startTime;
+    console.error(`❌ Error deleting transaction completely (${responseTime}ms):`, error);
+    
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete transaction completely',
+      message: error.message,
+      responseTime: responseTime
+    });
+  }
+});
+
 module.exports = router;
 

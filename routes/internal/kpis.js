@@ -141,32 +141,43 @@ router.get('/daily-consumption-7days', async (req, res) => {
     const { monday, sunday } = getSmartWeekRange();
     const today = new Date();
     
-    // Query para transacciones aprobadas de la semana seleccionada inteligentemente
     const query = {
       isDeleted: { $ne: true },
-      operation: 'TRANSACTION_APPROVED',
-      createdAt: {
-        $gte: monday,
-        $lte: sunday
-      }
+      operation: 'TRANSACTION_APPROVED'
     };
 
-    // Agregación por día de la semana
+    const generateDateFormats = (date) => {
+      const day = date.getDate();
+      const month = date.getMonth() + 1;
+      const year = date.getFullYear();
+      
+      const withZeros = `${day.toString().padStart(2, '0')}/${month.toString().padStart(2, '0')}/${year}`;
+      const withoutZeros = `${day}/${month}/${year}`;
+      
+      return [withZeros, withoutZeros];
+    };
+
+    const dateRange = [];
+    for (let d = new Date(monday); d <= sunday; d.setDate(d.getDate() + 1)) {
+      const dateFormats = generateDateFormats(d);
+      dateRange.push(...dateFormats);
+    }
+
     const dailyData = await Transaction.aggregate([
-      { $match: query },
+      { 
+        $match: {
+          ...query,
+          date: { $in: dateRange }
+        }
+      },
       {
         $group: {
-          _id: {
-            year: { $year: "$createdAt" },
-            month: { $month: "$createdAt" },
-            day: { $dayOfMonth: "$createdAt" },
-            dayOfWeek: { $dayOfWeek: "$createdAt" }
-          },
+          _id: "$date",
           totalAmount: { $sum: "$amount" },
           transactionCount: { $sum: 1 }
         }
       },
-      { $sort: { "_id.year": 1, "_id.month": 1, "_id.day": 1 } }
+      { $sort: { "_id": 1 } }
     ]);
 
     // Nombres de los días de la semana
@@ -177,22 +188,19 @@ router.get('/daily-consumption-7days', async (req, res) => {
     let totalConsumption = 0;
     let totalTransactions = 0;
 
-    // Crear array con todos los días de la semana (lunes a domingo)
     for (let i = 0; i < 7; i++) {
       const currentDay = new Date(monday);
       currentDay.setDate(monday.getDate() + i);
       
+      const dateFormats = generateDateFormats(currentDay);
       const dayData = dailyData.find(d => 
-        d._id.day === currentDay.getDate() &&
-        d._id.month === (currentDay.getMonth() + 1) &&
-        d._id.year === currentDay.getFullYear()
+        dateFormats.includes(d._id)
       );
 
       const dayName = dayNames[currentDay.getDay()];
       const totalAmount = dayData ? dayData.totalAmount : 0;
       const transactionCount = dayData ? dayData.transactionCount : 0;
 
-      // Calcular promedio del día (suma total / número de transacciones)
       const dailyAverage = transactionCount > 0 ? totalAmount / transactionCount : 0;
 
       dailyBreakdown.push({

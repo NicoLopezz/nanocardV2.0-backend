@@ -10,8 +10,6 @@ class MercuryService {
   // Obtener todas las cards de Mercury
   async getAllCards() {
     try {
-      console.log(`🔗 Fetching cards from Mercury API...`);
-      
       const response = await fetch(`${this.baseUrl}/account/${this.accountId}/cards`, {
         headers: {
           'Authorization': `Bearer ${this.token}`,
@@ -20,42 +18,29 @@ class MercuryService {
         }
       });
 
-      console.log(`📊 Mercury Cards API Response Status: ${response.status}`);
-
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`❌ Mercury Cards API Error Response:`, errorText);
         throw new Error(`Mercury Cards API error: ${response.status} ${response.statusText}`);
       }
 
       const data = await response.json();
-      console.log(`📊 Mercury Cards API Response Data type:`, typeof data);
-      console.log(`📊 Mercury Cards API Response Data keys:`, Object.keys(data || {}));
-      
       const cards = data?.cards || [];
-      console.log(`✅ Fetched ${cards?.length || 0} cards from Mercury`);
       
       return cards;
     } catch (error) {
-      console.error(`❌ Error fetching Mercury cards:`, error);
       throw error;
     }
   }
 
-  // Obtener todas las transacciones de Mercury
   async getAllTransactions(options = {}) {
     try {
-      console.log(`🔗 Fetching transactions from Mercury API...`);
-      
-      // Parámetros por defecto para obtener TODAS las transacciones
       const defaultOptions = {
-        limit: 1000, // Máximo permitido por Mercury
+        limit: 1000,
         offset: 0,
-        startDate: '2020-01-01', // Desde 2020 para obtener histórico completo
-        ...options // Los options del request pueden sobrescribir estos valores
+        startDate: '2020-01-01',
+        ...options
       };
       
-      // Si se proporcionan start o end, usar esos valores
       if (options.startDate) {
         defaultOptions.start = options.startDate;
       }
@@ -63,7 +48,6 @@ class MercuryService {
         defaultOptions.end = options.endDate;
       }
       
-      // Construir URL con parámetros
       const params = new URLSearchParams();
       Object.entries(defaultOptions).forEach(([key, value]) => {
         if (value !== undefined && value !== null) {
@@ -72,7 +56,6 @@ class MercuryService {
       });
       
       const url = `${this.baseUrl}/account/${this.accountId}/transactions?${params.toString()}`;
-      console.log(`🔗 URL: ${url}`);
       
       const response = await fetch(url, {
         headers: {
@@ -82,37 +65,16 @@ class MercuryService {
         }
       });
 
-      console.log(`📊 Mercury API Response Status: ${response.status}`);
-
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`❌ Mercury API Error Response:`, errorText);
         throw new Error(`Mercury API error: ${response.status} ${response.statusText}`);
       }
 
       const data = await response.json();
-      console.log(`📊 Mercury API Response Data type:`, typeof data);
-      console.log(`📊 Mercury API Response Data keys:`, Object.keys(data || {}));
-      
-      // La API de Mercury retorna { total: X, transactions: [...] }
       const transactions = data?.transactions || [];
-      const total = data?.total || 0;
-      
-      console.log(`📊 Mercury API Response Data length:`, transactions?.length || 0);
-      console.log(`📊 Mercury API Total available:`, total);
-      console.log(`📊 Mercury API Response Data isArray:`, Array.isArray(transactions));
-      
-      // Si hay más transacciones disponibles y no hemos alcanzado el límite
-      if (total > transactions.length && defaultOptions.limit === 1000) {
-        console.log(`⚠️ WARNING: Only fetched ${transactions.length} of ${total} available transactions`);
-        console.log(`💡 Consider implementing pagination to get all transactions`);
-      }
-      
-      console.log(`✅ Fetched ${transactions?.length || 0} transactions from Mercury`);
       
       return transactions;
     } catch (error) {
-      console.error(`❌ Error fetching Mercury transactions:`, error);
       throw error;
     }
   }
@@ -181,7 +143,6 @@ class MercuryService {
       if (relatedTransaction?.details?.debitCardInfo?.id) {
         cardId = relatedTransaction.details.debitCardInfo.id;
         originalTransactionId = relatedId;
-        console.log(`🔗 Found cardId from related transaction: ${cardId} for fee ${mercuryTransaction.id}`);
       }
     }
     
@@ -189,7 +150,7 @@ class MercuryService {
   }
 
   // Convertir transacción de Mercury a formato Nano
-  convertMercuryTransactionToNano(mercuryTransaction, allMercuryTransactions = []) {
+  convertMercuryTransactionToNano(mercuryTransaction, allMercuryTransactions = [], cardName = null, userName = null) {
     const operation = this.mapMercuryStatusToOperation(mercuryTransaction.status, mercuryTransaction.amount);
     const transactionDate = new Date(mercuryTransaction.createdAt);
     
@@ -238,8 +199,8 @@ class MercuryService {
       date: formattedDate, // Formato DD/MM/YYYY requerido por el modelo
       time: formattedTime, // Formato HH:MM AM/PM requerido por el modelo
       rawDate: mercuryTransaction.createdAt, // Fecha original de Mercury (ISO string)
-      userName: 'Mercury User', // Se actualizará con el nombre real del usuario
-      cardName: 'Mercury Card', // Se actualizará con el nombre real de la card
+      userName: userName || 'Mercury User', // Usar el nombre real del usuario si se proporciona
+      cardName: cardName || 'Mercury Card', // Usar el nombre real de la card si se proporciona
       mercuryCategory: mercuryTransaction.mercuryCategory, // Campo específico de Mercury
       mercuryKind: mercuryTransaction.kind, // Tipo de transacción de Mercury
       originalTransactionId: originalTransactionId, // ID de la transacción original (para fees)

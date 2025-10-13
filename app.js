@@ -21,6 +21,7 @@ const historyRoutes = require('./routes/internal/history');
 const reconciliationRoutes = require('./routes/internal/reconciliations');
 const consolidationRoutes = require('./routes/internal/consolidations');
 const kpisRoutes = require('./routes/internal/kpis');
+const refreshAllStatsRoutes = require('./routes/internal/refresh-all-stats');
 
 // Importar rutas - Desarrollo y testing
 const seedRoutes = require('./routes/dev/seed');
@@ -28,6 +29,9 @@ const testCryptoMateRoutes = require('./routes/dev/test/test-cryptomate');
 const testCardsRoutes = require('./routes/dev/test/test-cards');
 const cleanupRoutes = require('./routes/dev/cleanup');
 const cloneRoutes = require('./routes/dev/clone');
+
+// Importar rutas - Cronjobs
+const cronjobsRoutes = require('./routes/cronjobs');
 
 const app = express();
 
@@ -73,6 +77,7 @@ app.use('/api/history', historyRoutes);
 app.use('/api/reconciliations', reconciliationRoutes);
 app.use('/consolidations', consolidationRoutes);
 app.use('/api/kpis', kpisRoutes);
+app.use('/api/refresh', refreshAllStatsRoutes);
 
 // Rutas - Desarrollo y testing
 app.use('/api/seed', seedRoutes);
@@ -80,6 +85,9 @@ app.use('/api/test', testCryptoMateRoutes);
 app.use('/api/test-cards', testCardsRoutes);
 app.use('/api/cleanup', cleanupRoutes);
 app.use('/api/clone', cloneRoutes);
+
+// Rutas - Cronjobs
+app.use('/api/cronjobs', cronjobsRoutes);
 
 // Ruta de health check
 app.get('/api/health', async (req, res) => {

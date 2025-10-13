@@ -13,10 +13,8 @@ router.post('/import-mercury-cards', async (req, res) => {
   const startTime = Date.now();
   
   try {
-    console.log('🚀 Starting OPTIMIZED Mercury cards import...');
     
-    // Step 1: Get existing users and cards from DB (for deduplication)
-    console.log('📊 Step 1: Getting existing users and cards from DB...');
+    
     const User = getUserModel();
     const Card = getCardModel();
     
@@ -26,12 +24,7 @@ router.post('/import-mercury-cards', async (req, res) => {
     const existingUserIds = new Set(existingUsers.map(u => u._id));
     const existingCardIds = new Set(existingCards.map(c => c._id));
     
-    console.log(`✅ Found ${existingUserIds.size} existing users and ${existingCardIds.size} existing Mercury cards in DB`);
-    
-    // Step 2: Fetch all Mercury cards
-    console.log('📊 Step 2: Fetching all Mercury cards...');
     const mercuryCards = await mercuryService.getAllCards();
-    console.log(`✅ Fetched ${mercuryCards.length} total Mercury cards`);
     
     if (mercuryCards.length === 0) {
       return res.json({
@@ -50,8 +43,6 @@ router.post('/import-mercury-cards', async (req, res) => {
       });
     }
     
-    // Step 3: Process cards in batches
-    console.log('📊 Step 3: Processing cards in batches...');
     const batchSize = 10;
     const batches = [];
     for (let i = 0; i < mercuryCards.length; i += batchSize) {
@@ -62,15 +53,15 @@ router.post('/import-mercury-cards', async (req, res) => {
     let totalCardsImported = 0;
     let totalErrors = 0;
     const errors = [];
+    const importedUsers = [];
+    const importedCards = [];
     
-    // Process batches in parallel (max 2 concurrent batches)
     const maxConcurrentBatches = 2;
     for (let i = 0; i < batches.length; i += maxConcurrentBatches) {
       const currentBatches = batches.slice(i, i + maxConcurrentBatches);
       
       const batchPromises = currentBatches.map(async (batch, batchIndex) => {
         const globalBatchIndex = i + batchIndex;
-        console.log(`📦 Processing batch ${globalBatchIndex + 1}/${batches.length} (${batch.length} cards)...`);
         
         const batchResults = {
           newUsers: [],
@@ -87,10 +78,9 @@ router.post('/import-mercury-cards', async (req, res) => {
             if (!existingUserIds.has(nanoCard.userId)) {
               const newUser = {
                 _id: nanoCard.userId,
-                name: nanoCard.name,
+                username: `${nanoCard.name}_${nanoCard.userId}`.replace(/\s+/g, '_').toLowerCase(),
                 email: `${nanoCard.userId}@mercury.com`, // Email genérico para Mercury users
-                role: 'user',
-                isActive: true,
+                role: 'standard', // ✅ FIXED: Use 'standard' instead of 'user'
                 stats: {
                   totalTransactions: 0,
                   totalDeposited: 0,
@@ -108,14 +98,10 @@ router.post('/import-mercury-cards', async (req, res) => {
             
             // Check if card exists, if not create it
             if (!existingCardIds.has(nanoCard._id)) {
-              console.log(`   📝 Adding new Mercury card: ${nanoCard._id} for user ${nanoCard.userId}`);
               batchResults.newCards.push(nanoCard);
-            } else {
-              console.log(`   ✅ Mercury card ${nanoCard._id} already exists, skipping`);
             }
             
           } catch (error) {
-            console.error(`   ❌ Error processing card ${mercuryCard.cardId}:`, error.message);
             batchResults.batchErrors.push({
               cardId: mercuryCard.cardId,
               error: error.message
@@ -142,26 +128,41 @@ router.post('/import-mercury-cards', async (req, res) => {
       
       // Bulk insert new users if any
       if (allNewUsers.length > 0) {
-        console.log(`📊 Bulk inserting ${allNewUsers.length} new users...`);
         try {
-          await User.insertMany(allNewUsers, { ordered: false });
+          const insertResult = await User.insertMany(allNewUsers, { ordered: false });
           totalUsersImported += allNewUsers.length;
-          console.log(`✅ Successfully inserted ${allNewUsers.length} new users`);
+          
+          // ✅ Track imported users with details
+          allNewUsers.forEach(user => {
+            importedUsers.push({
+              id: user._id,
+              username: user.username,
+              email: user.email,
+              role: user.role
+            });
+          });
+          
         } catch (insertError) {
-          console.error(`❌ Error bulk inserting users:`, insertError.message);
           totalErrors += allNewUsers.length;
         }
       }
       
-      // Bulk insert new cards if any
       if (allNewCards.length > 0) {
-        console.log(`📊 Bulk inserting ${allNewCards.length} new cards...`);
         try {
           await Card.insertMany(allNewCards, { ordered: false });
           totalCardsImported += allNewCards.length;
-          console.log(`✅ Successfully inserted ${allNewCards.length} new cards`);
+          
+          allNewCards.forEach(card => {
+            importedCards.push({
+              id: card._id,
+              userId: card.userId,
+              name: card.name,
+              supplier: card.supplier,
+              last4: card.last4
+            });
+          });
+          
         } catch (insertError) {
-          console.error(`❌ Error bulk inserting cards:`, insertError.message);
           totalErrors += allNewCards.length;
         }
       }
@@ -171,139 +172,31 @@ router.post('/import-mercury-cards', async (req, res) => {
       totalErrors += allBatchErrors.length;
     }
     
-    // OPTIMIZACIÓN: Eliminar Step 4 - pull-movs-today trae todas las transacciones
-    console.log(`⚡ OPTIMIZED: Skipping individual transaction import - pull-movs-today will handle all transactions`);
-    let totalTransactionsImported = 0;
-    let totalTransactionsUpdated = 0;
-    const transactionErrors = [];
-    
-    // NUEVO PASO: Ejecutar pull-movs-today para traer todas las transacciones
-    console.log(`📥 Step 5: Executing pull-movs-today to import all Mercury transactions...`);
-    let pullMovsResult = null;
-    const pullMovsErrors = [];
-    
-    try {
-      console.log(`   🚀 Calling pull-movs-today OPTIMIZED endpoint...`);
-      
-      // OPTIMIZACIÓN: Usar endpoint optimizado con procesamiento en paralelo
-      const pullMovsUrl = `http://localhost:3001/api/real-mercury/pull-movs-today-optimized`;
-      const response = await fetch(pullMovsUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      
-      if (response.ok) {
-        pullMovsResult = await response.json();
-        console.log(`   ✅ pull-movs-today OPTIMIZED executed successfully`);
-        console.log(`   📊 Total time: ${pullMovsResult.summary?.totalTime || 'N/A'}ms`);
-        console.log(`   ⚡ OPTIMIZATION: Parallel processing enabled`);
-      } else {
-        throw new Error(`HTTP ${response.status}`);
-      }
-    } catch (pullMovsError) {
-      console.error(`   ❌ Error executing pull-movs-today OPTIMIZED:`, pullMovsError.message);
-      pullMovsErrors.push({
-        step: 'pull-movs-today-optimized',
-        error: pullMovsError.message
-      });
-    }
-    
-    // NUEVO PASO: Refresh stats para todas las cards procesadas (DESPUÉS de importar transacciones)
-    console.log(`📊 Step 6: Refreshing stats for all processed Mercury cards...`);
-    let statsRefreshed = 0;
-    const statsErrors = [];
-    
-    // Obtener todas las cards Mercury que fueron procesadas
-    const allMercuryCards = await Card.find({ supplier: 'mercury' }).select('_id');
-    
-    if (allMercuryCards.length > 0) {
-      console.log(`   🔄 Refreshing stats for ${allMercuryCards.length} Mercury cards...`);
-      
-      // OPTIMIZACIÓN: Procesar stats en lotes más grandes para mejor rendimiento
-      const statsBatchSize = 30;
-      for (let i = 0; i < allMercuryCards.length; i += statsBatchSize) {
-        const batch = allMercuryCards.slice(i, i + statsBatchSize);
-        
-        const batchPromises = batch.map(async (card) => {
-          try {
-            const cardId = card._id;
-            
-            // OPTIMIZACIÓN: Usar servicio directo en lugar de HTTP
-            await StatsRefreshService.refreshCardStats(cardId);
-            
-            statsRefreshed++;
-            console.log(`     ✅ Stats refreshed for card ${cardId}`);
-          } catch (statsError) {
-            console.error(`     ❌ Error refreshing stats for card ${card._id}:`, statsError.message);
-            statsErrors.push({
-              cardId: card._id,
-              error: statsError.message
-            });
-          }
-        });
-        
-        await Promise.all(batchPromises);
-      }
-      
-      console.log(`   ✅ Stats refreshed for ${statsRefreshed} Mercury cards`);
-      if (statsErrors.length > 0) {
-        console.log(`   ⚠️ Stats errors: ${statsErrors.length}`);
-      }
-    } else {
-      console.log(`   ⚡ No Mercury cards to refresh stats`);
-    }
     
     const totalTime = Date.now() - startTime;
     const timePerCard = (totalTime / mercuryCards.length).toFixed(2);
     
-    console.log(`🎉 OPTIMIZED Mercury cards import with transactions and stats completed:`);
-    console.log(`   - Total cards processed: ${mercuryCards.length}`);
-    console.log(`   - Users imported: ${totalUsersImported}`);
-    console.log(`   - Cards imported: ${totalCardsImported}`);
-    console.log(`   - Transactions imported: ${totalTransactionsImported}`);
-    console.log(`   - Transactions updated: ${totalTransactionsUpdated}`);
-    console.log(`   - Stats refreshed: ${statsRefreshed}`);
-    console.log(`   - pull-movs-today executed: ${pullMovsResult ? 'Yes' : 'No'}`);
-    console.log(`   - Card import errors: ${totalErrors}`);
-    console.log(`   - Transaction errors: ${transactionErrors.length}`);
-    console.log(`   - Stats errors: ${statsErrors.length}`);
-    console.log(`   - pull-movs errors: ${pullMovsErrors.length}`);
-    console.log(`   - Total time: ${totalTime}ms`);
-    console.log(`   - Time per card: ${timePerCard}ms`);
+    console.log(`✅ Mercury import completed: ${totalUsersImported} users, ${totalCardsImported} cards imported (${totalTime}ms)`);
     
     res.json({
       success: true,
-      message: 'OPTIMIZED Mercury cards import with transactions and stats completed successfully',
+      message: 'Mercury cards import completed successfully',
       summary: {
         totalCards: mercuryCards.length,
         usersImported: totalUsersImported,
         cardsImported: totalCardsImported,
-        transactionsImported: totalTransactionsImported,
-        transactionsUpdated: totalTransactionsUpdated,
-        statsRefreshed: statsRefreshed,
-        pullMovsExecuted: pullMovsResult ? true : false,
-        pullMovsTime: pullMovsResult?.summary?.totalTime || null,
-        cardImportErrors: totalErrors,
-        transactionErrors: transactionErrors.length,
-        statsErrors: statsErrors.length,
-        pullMovsErrors: pullMovsErrors.length,
+        cardsUpdated: mercuryCards.length - totalCardsImported,
+        errors: totalErrors,
         performance: {
           totalTime: totalTime,
           timePerCard: timePerCard
         }
       },
-      pullMovsResult: pullMovsResult,
-      errors: {
-        cardImport: errors.slice(0, 5),
-        transaction: transactionErrors.slice(0, 5),
-        stats: statsErrors.slice(0, 5),
-        pullMovs: pullMovsErrors.slice(0, 5)
-      }
+      errors: errors.slice(0, 5)
     });
     
   } catch (error) {
     const totalTime = Date.now() - startTime;
-    console.error(`❌ Optimized Mercury cards import error (${totalTime}ms):`, error);
     res.status(500).json({
       success: false,
       error: 'Optimized Mercury cards import failed',
@@ -321,10 +214,6 @@ router.post('/refresh-transactions/:cardId', async (req, res) => {
   
   try {
     const { cardId } = req.params;
-    console.log(`🚀 Starting OPTIMIZED Mercury transaction refresh for card: ${cardId}`);
-    
-    // Step 1: Get existing card and transactions from DB (in parallel)
-    console.log('📊 Step 1: Getting existing card and transactions from DB...');
     const Card = getCardModel();
     const Transaction = getTransactionModel();
     
@@ -344,12 +233,10 @@ router.post('/refresh-transactions/:cardId', async (req, res) => {
     console.log(`✅ Found card ${cardId} and ${existingTransactionIds.size} existing Mercury transactions`);
     
     // Step 2: Fetch all Mercury transactions (not filtered by cardId yet)
-    console.log('📊 Step 2: Fetching all Mercury transactions...');
     const allMercuryTransactions = await mercuryService.getAllTransactions();
     console.log(`✅ Fetched ${allMercuryTransactions.length} total Mercury transactions`);
     
     // Step 3: Filter transactions for this specific card
-    console.log('📊 Step 3: Filtering transactions for card...');
     const cardTransactions = allMercuryTransactions.filter(mercuryTransaction => {
       // Check direct cardId
       if (mercuryTransaction.details?.debitCardInfo?.id === cardId) {
@@ -389,7 +276,6 @@ router.post('/refresh-transactions/:cardId', async (req, res) => {
     }
     
     // Step 4: Process transactions in batches
-    console.log('📊 Step 4: Processing transactions in batches...');
     const batchSize = 50;
     const batches = [];
     for (let i = 0; i < cardTransactions.length; i += batchSize) {
@@ -408,7 +294,6 @@ router.post('/refresh-transactions/:cardId', async (req, res) => {
       
       const batchPromises = currentBatches.map(async (batch, batchIndex) => {
         const globalBatchIndex = i + batchIndex;
-        console.log(`📦 Processing batch ${globalBatchIndex + 1}/${batches.length} (${batch.length} transactions)...`);
         
         const batchResults = {
           newTransactions: [],
@@ -418,14 +303,22 @@ router.post('/refresh-transactions/:cardId', async (req, res) => {
         
         for (const mercuryTransaction of batch) {
           try {
+            // Get real names from database
+            const card = await Card.findById(cardId);
+            const user = await User.findById(cardId);
+            
             // Convert Mercury transaction to Nano format (passing all transactions for chain lookup)
-            const nanoTransaction = mercuryService.convertMercuryTransactionToNano(mercuryTransaction, allMercuryTransactions);
+            const nanoTransaction = mercuryService.convertMercuryTransactionToNano(
+              mercuryTransaction, 
+              allMercuryTransactions, 
+              card ? card.name : null,
+              user ? user.username : null
+            );
             
             // Only process transactions with valid cardId (now includes fees with resolved cardId)
             if (nanoTransaction.cardId === cardId) {
               if (!existingTransactionIds.has(nanoTransaction._id)) {
                 // Nueva transacción
-                console.log(`   📝 Adding new Mercury transaction: ${nanoTransaction._id} for card ${nanoTransaction.cardId}`);
                 batchResults.newTransactions.push(nanoTransaction);
               } else {
                 // Actualizar transacción existente
@@ -445,7 +338,6 @@ router.post('/refresh-transactions/:cardId', async (req, res) => {
               console.log(`   ⚠️ Transaction ${mercuryTransaction.id} filtered out (cardId: ${nanoTransaction.cardId} != ${cardId})`);
             }
           } catch (error) {
-            console.error(`   ❌ Error processing transaction ${mercuryTransaction.id}:`, error.message);
             batchResults.batchErrors.push({
               transactionId: mercuryTransaction.id,
               error: error.message
@@ -472,26 +364,21 @@ router.post('/refresh-transactions/:cardId', async (req, res) => {
       
       // Bulk insert new transactions if any
       if (allNewTransactions.length > 0) {
-        console.log(`📊 Bulk inserting ${allNewTransactions.length} new transactions...`);
         try {
           await Transaction.insertMany(allNewTransactions, { ordered: false });
           totalImported += allNewTransactions.length;
           console.log(`✅ Successfully inserted ${allNewTransactions.length} new transactions`);
         } catch (insertError) {
-          console.error(`❌ Error bulk inserting transactions:`, insertError.message);
           totalErrors += allNewTransactions.length;
         }
       }
       
       // Bulk update existing transactions if any
       if (allTransactionUpdates.length > 0) {
-        console.log(`📊 Bulk updating ${allTransactionUpdates.length} existing transactions...`);
         try {
           await Transaction.bulkWrite(allTransactionUpdates, { ordered: false });
           totalUpdated += allTransactionUpdates.length;
-          console.log(`✅ Successfully updated ${allTransactionUpdates.length} existing transactions`);
         } catch (updateError) {
-          console.error(`❌ Error bulk updating transactions:`, updateError.message);
           totalErrors += allTransactionUpdates.length;
         }
       }
@@ -502,7 +389,6 @@ router.post('/refresh-transactions/:cardId', async (req, res) => {
     }
     
     // Step 5: Update card stats using MongoDB aggregation
-    console.log('📊 Step 5: Updating card stats...');
     try {
       const cardStatsPipeline = [
         { $match: { cardId: cardId, supplier: 'mercury' } },
@@ -598,24 +484,15 @@ router.post('/refresh-transactions/:cardId', async (req, res) => {
       };
       
       await card.save();
-      console.log(`✅ Card stats updated for ${cardId}`);
+      
       
     } catch (statsError) {
-      console.error(`❌ Error updating card stats:`, statsError.message);
+      // Error updating card stats
     }
     
     const totalTime = Date.now() - startTime;
     const timePerTransaction = (totalTime / cardTransactions.length).toFixed(2);
-    
-    console.log(`🎉 OPTIMIZED Mercury transaction refresh completed:`);
-    console.log(`   - Card ID: ${cardId}`);
-    console.log(`   - Total transactions processed: ${cardTransactions.length}`);
-    console.log(`   - Transactions imported: ${totalImported}`);
-    console.log(`   - Transactions updated: ${totalUpdated}`);
-    console.log(`   - Errors: ${totalErrors}`);
-    console.log(`   - Total time: ${totalTime}ms`);
-    console.log(`   - Time per transaction: ${timePerTransaction}ms`);
-    
+  
     res.json({
       success: true,
       message: 'OPTIMIZED Mercury transaction refresh completed successfully',
@@ -635,7 +512,6 @@ router.post('/refresh-transactions/:cardId', async (req, res) => {
     
   } catch (error) {
     const totalTime = Date.now() - startTime;
-    console.error(`❌ Optimized Mercury transaction refresh error (${totalTime}ms):`, error);
     res.status(500).json({
       success: false,
       error: 'Optimized Mercury transaction refresh failed',
@@ -652,7 +528,7 @@ router.post('/import-all-transactions', async (req, res) => {
   const startTime = Date.now();
   
   try {
-    console.log('🚀 Starting OPTIMIZED Mercury ALL transactions import...');
+    
     
     // Obtener parámetros de fecha del body (opcionales)
     const { start, end } = req.body;
@@ -661,23 +537,23 @@ router.post('/import-all-transactions', async (req, res) => {
     const options = {};
     if (start) {
       options.startDate = start;
-      console.log(`📅 Date range START: ${start}`);
+      
     }
     if (end) {
       options.endDate = end;
-      console.log(`📅 Date range END: ${end}`);
+      
     }
     
     if (start || end) {
-      console.log(`📊 Importing Mercury transactions for date range: ${start || 'beginning'} to ${end || 'now'}`);
+      
     } else {
-      console.log(`📊 Importing ALL Mercury transactions (no date filter)`);
+      
     }
     
     // Step 1: Fetch Mercury transactions with date range
-    console.log('📊 Step 1: Fetching Mercury transactions...');
+    
     const mercuryTransactions = await mercuryService.getAllTransactions(options);
-    console.log(`✅ Fetched ${mercuryTransactions.length} total Mercury transactions`);
+    
     
     if (mercuryTransactions.length === 0) {
       return res.json({
@@ -697,7 +573,6 @@ router.post('/import-all-transactions', async (req, res) => {
     }
     
     // Step 2: Get existing transactions from DB (for deduplication)
-    console.log('📊 Step 2: Getting existing transactions from DB...');
     
     // Esperar un momento para asegurar que la conexión esté establecida
     await new Promise(resolve => setTimeout(resolve, 1000));
@@ -705,10 +580,9 @@ router.post('/import-all-transactions', async (req, res) => {
     const Transaction = getTransactionModel();
     const existingTransactions = await Transaction.find({ supplier: 'mercury' }).lean();
     const existingTransactionIds = new Set(existingTransactions.map(t => t._id));
-    console.log(`✅ Found ${existingTransactionIds.size} existing Mercury transactions in DB`);
+    
     
     // Step 3: Process transactions in batches
-    console.log('📊 Step 3: Processing transactions in batches...');
     const batchSize = 50;
     const batches = [];
     for (let i = 0; i < mercuryTransactions.length; i += batchSize) {
@@ -727,7 +601,6 @@ router.post('/import-all-transactions', async (req, res) => {
       
       const batchPromises = currentBatches.map(async (batch, batchIndex) => {
         const globalBatchIndex = i + batchIndex;
-        console.log(`📦 Processing batch ${globalBatchIndex + 1}/${batches.length} (${batch.length} transactions)...`);
         
         const batchResults = {
           newTransactions: [],
@@ -746,14 +619,23 @@ router.post('/import-all-transactions', async (req, res) => {
               continue;
             }
             
+            // Get real names from database for this transaction's card
+            const { cardId: transactionCardId } = mercuryService.getCardIdFromTransaction(mercuryTransaction, mercuryTransactions);
+            const card = transactionCardId ? await Card.findById(transactionCardId) : null;
+            const user = transactionCardId ? await User.findById(transactionCardId) : null;
+            
             // Convert Mercury transaction to Nano format (passing all transactions for chain lookup)
-            const nanoTransaction = mercuryService.convertMercuryTransactionToNano(mercuryTransaction, mercuryTransactions);
+            const nanoTransaction = mercuryService.convertMercuryTransactionToNano(
+              mercuryTransaction, 
+              mercuryTransactions,
+              card ? card.name : null,
+              user ? user.username : null
+            );
             
             // Only process transactions with valid cardId (now includes fees with resolved cardId)
             if (nanoTransaction.cardId) {
               if (!existingTransactionIds.has(nanoTransaction._id)) {
                 // Nueva transacción
-                console.log(`   📝 Adding new Mercury transaction: ${nanoTransaction._id} for card ${nanoTransaction.cardId}`);
                 batchResults.newTransactions.push(nanoTransaction);
               } else {
                 // Actualizar transacción existente
@@ -773,7 +655,6 @@ router.post('/import-all-transactions', async (req, res) => {
               console.log(`   ⚠️ Transaction ${mercuryTransaction.id} has no cardId, skipping`);
             }
           } catch (error) {
-            console.error(`   ❌ Error processing transaction ${mercuryTransaction.id}:`, error.message);
             batchResults.batchErrors.push({
               transactionId: mercuryTransaction.id,
               error: error.message
@@ -800,26 +681,21 @@ router.post('/import-all-transactions', async (req, res) => {
       
       // Bulk insert new transactions if any
       if (allNewTransactions.length > 0) {
-        console.log(`📊 Bulk inserting ${allNewTransactions.length} new transactions...`);
         try {
           await Transaction.insertMany(allNewTransactions, { ordered: false });
           totalImported += allNewTransactions.length;
-          console.log(`✅ Successfully inserted ${allNewTransactions.length} new transactions`);
+          
         } catch (insertError) {
-          console.error(`❌ Error bulk inserting transactions:`, insertError.message);
           totalErrors += allNewTransactions.length;
         }
       }
       
       // Bulk update existing transactions if any
       if (allTransactionUpdates.length > 0) {
-        console.log(`📊 Bulk updating ${allTransactionUpdates.length} existing transactions...`);
         try {
           await Transaction.bulkWrite(allTransactionUpdates, { ordered: false });
           totalUpdated += allTransactionUpdates.length;
-          console.log(`✅ Successfully updated ${allTransactionUpdates.length} existing transactions`);
         } catch (updateError) {
-          console.error(`❌ Error bulk updating transactions:`, updateError.message);
           totalErrors += allTransactionUpdates.length;
         }
       }
@@ -831,14 +707,6 @@ router.post('/import-all-transactions', async (req, res) => {
     
     const totalTime = Date.now() - startTime;
     const timePerTransaction = (totalTime / mercuryTransactions.length).toFixed(2);
-    
-    console.log(`🎉 OPTIMIZED Mercury ALL transactions import completed:`);
-    console.log(`   - Total transactions processed: ${mercuryTransactions.length}`);
-    console.log(`   - Transactions imported: ${totalImported}`);
-    console.log(`   - Transactions updated: ${totalUpdated}`);
-    console.log(`   - Errors: ${totalErrors}`);
-    console.log(`   - Total time: ${totalTime}ms`);
-    console.log(`   - Time per transaction: ${timePerTransaction}ms`);
     
     const dateRangeInfo = start || end ? ` for date range ${start || 'beginning'} to ${end || 'now'}` : '';
     
@@ -864,7 +732,6 @@ router.post('/import-all-transactions', async (req, res) => {
     
   } catch (error) {
     const totalTime = Date.now() - startTime;
-    console.error(`❌ Optimized Mercury ALL transactions import error (${totalTime}ms):`, error);
     res.status(500).json({
       success: false,
       error: 'Optimized Mercury ALL transactions import failed',
@@ -881,13 +748,12 @@ router.post('/refresh-all-stats', async (req, res) => {
   const startTime = Date.now();
   
   try {
-    console.log('🚀 Starting Mercury ALL cards stats refresh...');
+    
     
     // Step 1: Get all Mercury cards from DB
-    console.log('📊 Step 1: Getting all Mercury cards from DB...');
     const Card = getCardModel();
     const mercuryCards = await Card.find({ supplier: 'mercury' }).lean();
-    console.log(`✅ Found ${mercuryCards.length} Mercury cards in DB`);
+    
     
     if (mercuryCards.length === 0) {
       return res.json({
@@ -906,7 +772,7 @@ router.post('/refresh-all-stats', async (req, res) => {
     }
     
     // Step 2: Process cards in batches (to avoid overwhelming the system)
-    console.log('📊 Step 2: Processing cards in batches...');
+    
     const batchSize = 3; // Smaller batches for stats refresh
     const batches = [];
     for (let i = 0; i < mercuryCards.length; i += batchSize) {
@@ -921,16 +787,12 @@ router.post('/refresh-all-stats', async (req, res) => {
     // Process batches sequentially (to avoid overwhelming the database)
     for (let i = 0; i < batches.length; i++) {
       const batch = batches[i];
-      console.log(`📦 Processing batch ${i + 1}/${batches.length} (${batch.length} cards)...`);
       
       const batchPromises = batch.map(async (card) => {
         try {
-          console.log(`   🔄 Refreshing stats for card: ${card._id}`);
           await StatsRefreshService.refreshCardStats(card._id);
-          console.log(`   ✅ Stats refreshed for card: ${card._id}`);
           return { cardId: card._id, success: true };
         } catch (error) {
-          console.error(`   ❌ Error refreshing stats for card ${card._id}:`, error.message);
           return { cardId: card._id, success: false, error: error.message };
         }
       });
@@ -960,13 +822,7 @@ router.post('/refresh-all-stats', async (req, res) => {
     
     const totalTime = Date.now() - startTime;
     const timePerCard = (totalTime / mercuryCards.length).toFixed(2);
-    
-    console.log(`🎉 Mercury ALL cards stats refresh completed:`);
-    console.log(`   - Total cards processed: ${mercuryCards.length}`);
-    console.log(`   - Cards refreshed: ${totalRefreshed}`);
-    console.log(`   - Errors: ${totalErrors}`);
-    console.log(`   - Total time: ${totalTime}ms`);
-    console.log(`   - Time per card: ${timePerCard}ms`);
+
     
     res.json({
       success: true,
@@ -986,7 +842,6 @@ router.post('/refresh-all-stats', async (req, res) => {
     
   } catch (error) {
     const totalTime = Date.now() - startTime;
-    console.error(`❌ Mercury ALL cards stats refresh error (${totalTime}ms):`, error);
     res.status(500).json({
       success: false,
       error: 'Mercury ALL cards stats refresh failed',
@@ -1003,12 +858,12 @@ router.post('/refresh-dev-stats', async (req, res) => {
   const startTime = Date.now();
   
   try {
-    console.log('🚀 Starting Mercury DEV cards stats refresh (no timeout)...');
+    
     
     // Step 1: Get Mercury cards directly from Mercury API (not from DB to avoid timeout)
-    console.log('📊 Step 1: Getting Mercury cards from API...');
+    
     const mercuryCards = await mercuryService.getAllCards();
-    console.log(`✅ Found ${mercuryCards.length} Mercury cards from API`);
+    
     
     if (mercuryCards.length === 0) {
       return res.json({
@@ -1027,7 +882,7 @@ router.post('/refresh-dev-stats', async (req, res) => {
     }
     
     // Step 2: Process cards one by one (to avoid overwhelming the system)
-    console.log('📊 Step 2: Processing cards individually...');
+    
     
     let totalRefreshed = 0;
     let totalErrors = 0;
@@ -1040,12 +895,12 @@ router.post('/refresh-dev-stats', async (req, res) => {
       const cardId = mercuryCard.cardId;
       
       try {
-        console.log(`🔄 [${i + 1}/${mercuryCards.length}] Refreshing stats for card: ${cardId}`);
+        
         
         // Use the existing stats refresh service
         await StatsRefreshService.refreshCardStats(cardId);
         
-        console.log(`✅ [${i + 1}/${mercuryCards.length}] Stats refreshed for card: ${cardId}`);
+        
         results.push({ cardId: cardId, success: true });
         totalRefreshed++;
         
@@ -1055,7 +910,6 @@ router.post('/refresh-dev-stats', async (req, res) => {
         }
         
       } catch (error) {
-        console.error(`❌ [${i + 1}/${mercuryCards.length}] Error refreshing stats for card ${cardId}:`, error.message);
         results.push({ cardId: cardId, success: false, error: error.message });
         totalErrors++;
         errors.push({
@@ -1070,13 +924,6 @@ router.post('/refresh-dev-stats', async (req, res) => {
     
     const totalTime = Date.now() - startTime;
     const timePerCard = (totalTime / mercuryCards.length).toFixed(2);
-    
-    console.log(`🎉 Mercury DEV cards stats refresh completed:`);
-    console.log(`   - Total cards processed: ${mercuryCards.length}`);
-    console.log(`   - Cards refreshed: ${totalRefreshed}`);
-    console.log(`   - Errors: ${totalErrors}`);
-    console.log(`   - Total time: ${totalTime}ms`);
-    console.log(`   - Time per card: ${timePerCard}ms`);
     
     res.json({
       success: true,
@@ -1096,7 +943,6 @@ router.post('/refresh-dev-stats', async (req, res) => {
     
   } catch (error) {
     const totalTime = Date.now() - startTime;
-    console.error(`❌ Mercury DEV cards stats refresh error (${totalTime}ms):`, error);
     res.status(500).json({
       success: false,
       error: 'Mercury DEV cards stats refresh failed',
@@ -1113,8 +959,6 @@ router.post('/pull-movs-today', async (req, res) => {
   const startTime = Date.now();
   
   try {
-    console.log('🚀 Iniciando pull-movs-today endpoint...');
-    
     // Importar el script
     const { pullMovsToday } = require('../../../scripts/pull-movs-today');
     
@@ -1134,7 +978,6 @@ router.post('/pull-movs-today', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error executing pull-movs-today:', error);
     
     const endTime = Date.now();
     const totalTime = endTime - startTime;
@@ -1155,8 +998,7 @@ router.post('/pull-movs-today-optimized', async (req, res) => {
   const startTime = Date.now();
   
   try {
-    console.log('🚀 Iniciando pull-movs-today OPTIMIZED endpoint...');
-    console.log('⚡ OPTIMIZACIÓN: Procesamiento en paralelo habilitado');
+    console.log('🚀 Starting pull-movs-today endpoint...');
     
     // Importar el script optimizado
     const { pullMovsTodayOptimized } = require('../../../scripts/pull-movs-today-optimized');
@@ -1178,7 +1020,6 @@ router.post('/pull-movs-today-optimized', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error executing pull-movs-today OPTIMIZED:', error);
     
     const endTime = Date.now();
     const totalTime = endTime - startTime;
@@ -1200,7 +1041,7 @@ router.post('/refresh-all-mercury-stats', async (req, res) => {
   const startTime = Date.now();
   
   try {
-    console.log('🚀 Iniciando refresh de stats para todas las cards Mercury...');
+    
     
     // Conectar a la base de datos
     await connectDatabases();
@@ -1212,7 +1053,6 @@ router.post('/refresh-all-mercury-stats', async (req, res) => {
     const Card = getCardModel();
     const mercuryCards = await Card.find({ supplier: 'mercury' }).lean();
     
-    console.log(`📊 Encontradas ${mercuryCards.length} cards Mercury`);
     
     if (mercuryCards.length === 0) {
       return res.json({
@@ -1236,7 +1076,7 @@ router.post('/refresh-all-mercury-stats', async (req, res) => {
     for (let i = 0; i < mercuryCards.length; i++) {
       const card = mercuryCards[i];
       
-      console.log(`📊 Procesando card ${i + 1}/${mercuryCards.length}: ${card._id}`);
+      
       
       try {
         // Hacer petición al endpoint de refresh stats
@@ -1294,15 +1134,7 @@ router.post('/refresh-all-mercury-stats', async (req, res) => {
     
     const endTime = Date.now();
     const totalTime = endTime - startTime;
-    
-    console.log('=' .repeat(60));
-    console.log('🎉 REFRESH DE STATS COMPLETADO');
-    console.log('=' .repeat(60));
-    console.log(`📊 Resumen:`);
-    console.log(`   📈 Total cards: ${mercuryCards.length}`);
-    console.log(`   ✅ Procesadas: ${processed}`);
-    console.log(`   ❌ Errores: ${errors}`);
-    console.log(`   ⏱️ Tiempo total: ${(totalTime / 1000).toFixed(2)}s`);
+
     
     res.json({
       success: true,
@@ -1318,7 +1150,6 @@ router.post('/refresh-all-mercury-stats', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error executing refresh-all-mercury-stats:', error);
     
     const endTime = Date.now();
     const totalTime = endTime - startTime;
@@ -1333,6 +1164,240 @@ router.post('/refresh-all-mercury-stats', async (req, res) => {
     });
   } finally {
     await closeDatabaseConnections();
+  }
+});
+
+// Endpoint OPTIMIZADO para refrescar transacciones de TODAS las cards Mercury
+router.post('/refresh-all-transactions', async (req, res) => {
+  const startTime = Date.now();
+  
+  try {
+    const Card = getCardModel();
+    const mercuryCards = await Card.find({ supplier: 'mercury' }).select('_id name userId');
+    
+    if (mercuryCards.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No Mercury cards found',
+        summary: {
+          totalCards: 0,
+          transactionsRefreshed: 0,
+          statsUpdated: 0,
+          totalTime: Date.now() - startTime
+        }
+      });
+    }
+    
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    
+    const fromDate = thirtyDaysAgo.toISOString().split('T')[0];
+    const toDate = now.toISOString().split('T')[0];
+    
+    const Transaction = getTransactionModel();
+    
+    const existingTransactions = await Transaction.find({ 
+      cardId: { $in: mercuryCards.map(card => card._id) },
+      createdAt: { 
+        $gte: thirtyDaysAgo,
+        $lte: now
+      }
+    }, '_id cardId createdAt').lean();
+    
+    const existingTransactionIds = new Set(existingTransactions.map(t => t._id));
+    
+    const existingByCard = new Map();
+    existingTransactions.forEach(tx => {
+      if (!existingByCard.has(tx.cardId)) {
+        existingByCard.set(tx.cardId, []);
+      }
+      existingByCard.get(tx.cardId).push(tx._id);
+    });
+    
+    let totalTransactionsRefreshed = 0;
+    let totalStatsUpdated = 0;
+    let totalErrors = 0;
+    const errors = [];
+    
+    const allMercuryTransactions = await mercuryService.getAllTransactions();
+    
+    // Filtrar transacciones de los últimos 30 días y por cards Mercury
+    const recentTransactions = allMercuryTransactions.filter(tx => {
+      const txDate = new Date(tx.datetime || tx.createdAt);
+      const isRecent = txDate >= thirtyDaysAgo && txDate <= now;
+      const hasMercuryCard = mercuryCards.some(card => 
+        tx.details?.debitCardInfo?.id === card._id
+      );
+      return isRecent && hasMercuryCard;
+    });
+    
+    const User = getUserModel();
+    const cardDetailsMap = new Map();
+    
+    for (const card of mercuryCards) {
+      const existingCount = existingByCard.get(card._id)?.length || 0;
+      cardDetailsMap.set(card._id, {
+        cardId: card._id,
+        cardName: card.name,
+        userId: card.userId,
+        userName: 'Unknown',
+        transactionsFound: 0,
+        newTransactions: 0,
+        newTransactionsList: [],
+        existingInDb: existingCount
+      });
+      
+      try {
+        const user = await User.findById(card.userId);
+        if (user && user.profile) {
+          const userName = `${user.profile.firstName || ''} ${user.profile.lastName || ''}`.trim() || user.username;
+          cardDetailsMap.get(card._id).userName = userName;
+        }
+      } catch (userError) {
+      }
+    }
+    
+    const BATCH_SIZE = 10;
+    const batches = [];
+    for (let i = 0; i < recentTransactions.length; i += BATCH_SIZE) {
+      batches.push(recentTransactions.slice(i, i + BATCH_SIZE));
+    }
+    
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
+      
+      for (const mercuryTransaction of batch) {
+        try {
+          const associatedCard = mercuryCards.find(card => 
+            mercuryTransaction.details?.debitCardInfo?.id === card._id
+          );
+          
+          if (!associatedCard) {
+            continue;
+          }
+          
+          const cardDetails = cardDetailsMap.get(associatedCard._id);
+          if (cardDetails) {
+            cardDetails.transactionsFound++;
+          }
+          
+          const nanoTransaction = mercuryService.convertMercuryTransactionToNano(
+            mercuryTransaction,
+            allMercuryTransactions,
+            associatedCard.name,
+            associatedCard.name // Usar el nombre de la card como userName para Mercury
+          );
+          
+          const isNew = !existingTransactionIds.has(nanoTransaction._id);
+          
+          if (isNew) {
+            try {
+              const newTransaction = new Transaction({
+                ...nanoTransaction,
+                createdAt: new Date(),
+                updatedAt: new Date()
+              });
+              await newTransaction.save();
+              
+              totalTransactionsRefreshed++;
+              
+              if (cardDetails) {
+                cardDetails.newTransactions++;
+                cardDetails.newTransactionsList.push({
+                  id: nanoTransaction._id,
+                  operation: mercuryTransaction.operation,
+                  amount: nanoTransaction.amount,
+                  date: nanoTransaction.date,
+                  name: nanoTransaction.name
+                });
+              }
+              
+              try {
+                await StatsRefreshService.refreshCardStats(associatedCard._id);
+                totalStatsUpdated++;
+              } catch (statsError) {
+                errors.push({
+                  cardId: associatedCard._id,
+                  error: `Stats error: ${statsError.message}`
+                });
+              }
+              
+            } catch (saveError) {
+              errors.push({
+                transactionId: nanoTransaction._id,
+                error: saveError.message
+              });
+            }
+          }
+          
+        } catch (transactionError) {
+          errors.push({
+            transactionId: mercuryTransaction.id,
+            error: transactionError.message
+          });
+        }
+      }
+    }
+    
+    const debugInfo = Array.from(cardDetailsMap.values()).filter(card => card.newTransactions > 0 || card.transactionsFound > 0);
+    
+    const totalTime = Date.now() - startTime;
+    const timePerCard = (totalTime / mercuryCards.length).toFixed(2);
+    
+    console.log(`✅ Mercury refresh completed: ${totalTransactionsRefreshed} new transactions (${totalTime}ms)`);
+    
+    
+    res.json({
+      success: true,
+      message: 'OPTIMIZED Mercury transactions refresh completed successfully',
+      environment: {
+        nodeEnv: process.env.NODE_ENV || 'development',
+        transactionsDb: require('../../../config/environment').TRANSACTIONS_DB_URI
+      },
+      summary: {
+        totalCards: mercuryCards.length,
+        cardsWithNewTransactions: debugInfo.filter(c => c.newTransactions > 0).length,
+        newTransactionsCreated: totalTransactionsRefreshed,
+        statsUpdated: totalStatsUpdated,
+        errors: totalErrors,
+        performance: {
+          totalTime: totalTime,
+          timePerCard: timePerCard,
+          optimization: 'NEW transactions only from last 30 days + stats only if changes (for 10-minute execution)'
+        }
+      },
+      dateRange: {
+        from: fromDate,
+        to: toDate,
+        days: 30
+      },
+      cardsWithNewTransactions: debugInfo.filter(c => c.newTransactions > 0).map(card => ({
+        cardId: card.cardId,
+        cardName: card.cardName,
+        userId: card.userId,
+        userName: card.userName,
+        newTransactions: card.newTransactionsList.map(tx => ({
+          transactionId: tx.id,
+          amount: tx.amount,
+          date: tx.date,
+          name: tx.name
+        }))
+      })),
+      errors: errors.slice(0, 10)
+    });
+    
+  } catch (error) {
+    const totalTime = Date.now() - startTime;
+    console.error(`❌ OPTIMIZED Mercury transactions refresh error (${totalTime}ms):`, error);
+    
+    res.status(500).json({
+      success: false,
+      error: 'OPTIMIZED Mercury transactions refresh failed',
+      message: error.message,
+      performance: {
+        totalTime: totalTime
+      }
+    });
   }
 });
 

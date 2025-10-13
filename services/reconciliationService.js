@@ -163,16 +163,12 @@ class ReconciliationService {
         ReconciliationTransaction.insertMany(reconciliationTransactions)
       ]);
       
-      // Marcar transacciones como conciliadas
-      await Transaction.updateMany(
-        { userId: userId, isDeleted: false },
-        { 
-          reconciled: true,
-          reconciledAt: new Date(),
-          reconciledBy: createdBy,
-          reconciliationId: reconciliation._id
-        }
-      );
+      // Marcar transacciones como conciliadas y actualizar su historial
+      const transactionIds = reconciliationData.transactions?.ids || [];
+      await this.updateTransactionHistory(transactionIds, reconciliationId, reconciliationData.name, createdBy);
+      
+      // Crear registro general de la acción de conciliación
+      await this.createReconciliationLog(reconciliation, createdBy);
       
       return reconciliation;
       
@@ -331,6 +327,97 @@ class ReconciliationService {
     } catch (error) {
       console.error('Error deleting reconciliation:', error);
       throw error;
+    }
+  }
+
+  // Actualizar el historial de cada transacción cuando se concilia
+  static async updateTransactionHistory(transactionIds, reconciliationId, reconciliationName, createdBy) {
+    try {
+      const Transaction = getTransactionModel();
+      
+      for (const transactionId of transactionIds) {
+        const transaction = await Transaction.findById(transactionId);
+        
+        if (transaction) {
+          // Obtener el historial actual y agregar la nueva entrada
+          const currentHistory = transaction.history || [];
+          const newHistoryEntry = {
+            version: currentHistory.length + 1,
+            action: 'reconciled',
+            timestamp: new Date(),
+            modifiedBy: createdBy,
+            reconciliationId: reconciliationId,
+            reason: `Transaction reconciled as part of ${reconciliationName}`
+          };
+          
+          // Actualizar la transacción con el nuevo historial y marcar como conciliada
+          await Transaction.findByIdAndUpdate(
+            transactionId,
+            {
+              $push: { history: newHistoryEntry },
+              $set: {
+                reconciled: true,
+                reconciledAt: new Date(),
+                reconciledBy: createdBy,
+                reconciliationId: reconciliationId,
+                updatedAt: new Date()
+              },
+              $inc: { __v: 1 } // Incrementar la versión del documento
+            },
+            { new: true }
+          );
+        }
+      }
+      
+    } catch (error) {
+      console.error('Error updating transaction history:', error);
+      throw error;
+    }
+  }
+
+  // Crear registro general de la acción de conciliación
+  static async createReconciliationLog(reconciliation, createdBy) {
+    try {
+      const { getHistoryConnection } = require('../config/database');
+      const historyConnection = getHistoryConnection();
+      
+      // Obtener el nombre de la tarjeta
+      let cardName = 'Unknown Card';
+      if (reconciliation.metadata?.cardId) {
+        const { getCardModel } = require('../models/Card');
+        const Card = getCardModel();
+        const card = await Card.findById(reconciliation.metadata.cardId);
+        if (card) {
+          cardName = card.name;
+        }
+      }
+      
+      const logEntry = {
+        _id: `log_recon_${reconciliation._id}`,
+        actionType: 'reconciliation_created',
+        timestamp: new Date(),
+        performedBy: createdBy,
+        reconciliationId: reconciliation._id,
+        reconciliationName: reconciliation.name,
+        cardId: reconciliation.metadata?.cardId,
+        cardName: cardName, // Agregar el nombre de la tarjeta
+        transactionCount: reconciliation.transactions?.count || 0,
+        transactionIds: reconciliation.transactions?.ids || [],
+        summary: reconciliation.summary || {},
+        notes: reconciliation.metadata?.notes || reconciliation.description,
+        details: `El usuario '${createdBy}' creó la conciliación '${reconciliation.name}' para la tarjeta '${cardName}' (${reconciliation.metadata?.cardId}), afectando ${reconciliation.transactions?.count || 0} transacciones.`,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      
+      // Insertar en la colección histories de dev_history
+      const historiesCollection = historyConnection.db.collection('histories');
+      await historiesCollection.insertOne(logEntry);
+      
+    } catch (error) {
+      console.error('Error creating reconciliation log:', error);
+      // No lanzamos el error para no afectar la creación de la reconciliación
+      // Solo lo registramos
     }
   }
 }

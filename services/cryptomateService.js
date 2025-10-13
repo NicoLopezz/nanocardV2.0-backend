@@ -7,7 +7,7 @@ const execAsync = promisify(exec);
 
 // Función para obtener la API key de CryptoMate
 const getCryptoMateApiKey = () => {
-  return process.env.MERCURY_API_KEY || 'your-mercury-api-key-here';
+  return process.env.CRYPTOMATE_API_KEY || 'api-45f14849-914c-420e-a788-2e969d92bd5d';
 };
 
 // Función para obtener el token de autenticación
@@ -20,7 +20,6 @@ const fetchCardsFromCryptoMate = async () => {
   try {
     const curlCommand = `curl --location 'https://api.cryptomate.me/cards/virtual-cards/list' --header 'x-api-key: ${getCryptoMateApiKey()}' --header 'Content-Type: application/json' --header 'Cookie: JSESSIONID=7216B94569B249C7E74CF7409C99C656'`;
     
-    console.log('🚀 Fetching cards from CryptoMate via curl...');
     const { stdout, stderr } = await execAsync(curlCommand);
     
     if (stderr) {
@@ -28,7 +27,6 @@ const fetchCardsFromCryptoMate = async () => {
     }
     
     const data = JSON.parse(stdout);
-    console.log('✅ Cards fetched from CryptoMate:', data.length || 0);
     return data;
   } catch (error) {
     console.error('❌ Error fetching cards from CryptoMate:', error);
@@ -39,9 +37,8 @@ const fetchCardsFromCryptoMate = async () => {
 // Traer transacciones de una tarjeta específica desde CryptoMate usando curl
 const fetchTransactionsFromCryptoMate = async (cardId) => {
   try {
-    const curlCommand = `curl --location 'https://api.cryptomate.me/cards/virtual-cards/${cardId}/transactions' --header 'x-api-key: ${getCryptoMateApiKey()}' --header 'Content-Type: application/json' --header 'Cookie: JSESSIONID=7216B94569B249C7E74CF7409C99C656'`;
+    const curlCommand = `curl --location 'https://api.cryptomate.me/cards/virtual-cards/${cardId}/transactions' --header 'x-api-key: api-45f14849-914c-420e-a788-2e969d92bd5d' --header 'Content-Type: application/json' --header 'Cookie: JSESSIONID=97A7964CFD65CCA327AF0AA1AB798D42'`;
     
-    console.log(`🚀 Fetching transactions for card ${cardId} via curl...`);
     const { stdout, stderr } = await execAsync(curlCommand);
     
     if (stderr) {
@@ -179,7 +176,7 @@ const importAllCardsFromCryptoMate = async () => {
           
           user = new User({
             _id: nanoCard.userId,
-            username: nanoCard.userId,
+            username: `${nanoCard.name}_${nanoCard.userId}`.replace(/\s+/g, '_').toLowerCase(),
             email: userEmail,
             role: 'standard',
             profile: {

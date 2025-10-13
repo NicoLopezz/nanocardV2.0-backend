@@ -210,9 +210,10 @@ const getRecentTransactions = async (limit = 10) => {
         hours = 0;
       }
       
-      return new Date(year, month - 1, day, hours, minutes);
+      const parsedDate = new Date(year, month - 1, day, hours, minutes);
+      return parsedDate;
     } catch (error) {
-      console.error('Error parsing date:', dateStr, timeStr);
+      console.error('Error parsing date:', dateStr, timeStr, error);
       return new Date(0); // Fecha muy antigua como fallback
     }
   };
@@ -227,6 +228,7 @@ const getRecentTransactions = async (limit = 10) => {
   // Tomar solo el límite solicitado
   const transactions = sortedTransactions.slice(0, limit);
   
+  
   // Enriquecer cada transacción con información del usuario y tarjeta
   const enrichedTransactions = await Promise.all(
     transactions.map(async (transaction) => {
@@ -239,9 +241,9 @@ const getRecentTransactions = async (limit = 10) => {
         return {
           transactionId: transaction._id,
           userId: transaction.userId,
-          userName: transaction.userName || (user ? user.username : 'Unknown User'),
+          userName: (user ? user.username : (transaction.userName || 'Unknown User')),
           cardId: transaction.cardId,
-          cardName: transaction.cardName || (card ? card.name : 'Unknown Card'),
+          cardName: (card ? card.name : (transaction.cardName || 'Unknown Card')),
           last4: card ? card.last4 : '****',
           transactionDetails: {
             name: transaction.name,
@@ -260,7 +262,6 @@ const getRecentTransactions = async (limit = 10) => {
           timestamp: transaction.createdAt
         };
       } catch (error) {
-        console.error(`Error enriching transaction ${transaction._id}:`, error);
         return {
           transactionId: transaction._id,
           userId: transaction.userId,

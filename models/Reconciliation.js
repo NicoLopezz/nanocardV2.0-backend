@@ -75,6 +75,23 @@ const reconciliationSchema = new mongoose.Schema({
     notes: String
   },
   
+  // SISTEMA DE VERSIONADO ACUMULATIVO
+  versioning: {
+    version: { type: Number, default: 1 },
+    baseConsolidationId: String, // ID de la consolidación anterior (null para la primera)
+    isLatest: { type: Boolean, default: true },
+    newTransactionsInThisVersion: [{ type: String }], // Solo los IDs nuevos de esta versión
+    previousStats: {
+      moneyIn: { type: Number, default: 0 },
+      posted: { type: Number, default: 0 },
+      pending: { type: Number, default: 0 },
+      available: { type: Number, default: 0 },
+      totalTransactions: { type: Number, default: 0 },
+      deposits: { type: Number, default: 0 },
+      withdrawals: { type: Number, default: 0 }
+    }
+  },
+  
   // METADATOS DEL SNAPSHOT
   snapshotMetadata: {
     totalCards: Number,
