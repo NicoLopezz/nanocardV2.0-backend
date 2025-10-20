@@ -22,6 +22,7 @@ const reconciliationRoutes = require('./routes/internal/reconciliations');
 const consolidationRoutes = require('./routes/internal/consolidations');
 const kpisRoutes = require('./routes/internal/kpis');
 const refreshAllStatsRoutes = require('./routes/internal/refresh-all-stats');
+const usersCardsCountRoutes = require('./routes/internal/users-cards-count');
 
 // Importar rutas - Desarrollo y testing
 const seedRoutes = require('./routes/dev/seed');
@@ -78,6 +79,7 @@ app.use('/api/reconciliations', reconciliationRoutes);
 app.use('/consolidations', consolidationRoutes);
 app.use('/api/kpis', kpisRoutes);
 app.use('/api/refresh', refreshAllStatsRoutes);
+app.use('/api/users-cards-count', usersCardsCountRoutes);
 
 // Rutas - Desarrollo y testing
 app.use('/api/seed', seedRoutes);

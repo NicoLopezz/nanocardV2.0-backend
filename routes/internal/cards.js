@@ -101,18 +101,10 @@ router.get('/', authenticateToken, async (req, res) => {
 });
 
 // Endpoint para obtener TODAS las tarjetas sin paginación (solo stats, sin transacciones)
-router.get('/admin/all', authenticateToken, async (req, res) => {
+router.get('/admin/all', async (req, res) => {
   const startTime = Date.now();
   
   try {
-    // Verificar que el usuario sea admin
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ 
-        success: false, 
-        error: 'Access denied. Admin role required.' 
-      });
-    }
-
     // Parámetros de filtros (sin paginación)
     const sortBy = req.query.sortBy || 'updatedAt';
     const sortOrder = req.query.sortOrder === 'asc' ? 1 : -1;

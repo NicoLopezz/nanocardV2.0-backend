@@ -107,38 +107,19 @@ router.get('/daily-consumption-7days', async (req, res) => {
   try {
     const Transaction = getTransactionModel();
     
-    // Lógica inteligente: Si es lunes, mostrar semana anterior completa
-    // Si es martes-domingo, mostrar semana actual completa
-    const getSmartWeekRange = () => {
+    // Lógica simple: Últimos 7 días desde hoy hacia atrás
+    const getLast7DaysRange = () => {
       const today = new Date();
-      const dayOfWeek = today.getDay(); // 0=domingo, 1=lunes, ..., 6=sábado
+      today.setHours(23, 59, 59, 999); // Fin del día de hoy
       
-      let monday, sunday;
+      const sevenDaysAgo = new Date(today);
+      sevenDaysAgo.setDate(today.getDate() - 6); // 6 días atrás + hoy = 7 días
+      sevenDaysAgo.setHours(0, 0, 0, 0); // Inicio del día
       
-      if (dayOfWeek === 1) { // Si es lunes
-        // Mostrar semana anterior completa
-        monday = new Date(today);
-        monday.setDate(today.getDate() - 7); // Lunes de la semana pasada
-        monday.setHours(0, 0, 0, 0);
-        
-        sunday = new Date(monday);
-        sunday.setDate(monday.getDate() + 6); // Domingo de la semana pasada
-        sunday.setHours(23, 59, 59, 999);
-      } else {
-        // Si es martes-domingo, mostrar semana actual completa
-        monday = new Date(today);
-        monday.setDate(today.getDate() - dayOfWeek + 1);
-        monday.setHours(0, 0, 0, 0);
-        
-        sunday = new Date(monday);
-        sunday.setDate(monday.getDate() + 6);
-        sunday.setHours(23, 59, 59, 999);
-      }
-      
-      return { monday, sunday };
+      return { startDate: sevenDaysAgo, endDate: today };
     };
 
-    const { monday, sunday } = getSmartWeekRange();
+    const { startDate, endDate } = getLast7DaysRange();
     const today = new Date();
     
     const query = {
@@ -158,7 +139,7 @@ router.get('/daily-consumption-7days', async (req, res) => {
     };
 
     const dateRange = [];
-    for (let d = new Date(monday); d <= sunday; d.setDate(d.getDate() + 1)) {
+    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
       const dateFormats = generateDateFormats(d);
       dateRange.push(...dateFormats);
     }
@@ -189,8 +170,8 @@ router.get('/daily-consumption-7days', async (req, res) => {
     let totalTransactions = 0;
 
     for (let i = 0; i < 7; i++) {
-      const currentDay = new Date(monday);
-      currentDay.setDate(monday.getDate() + i);
+      const currentDay = new Date(startDate);
+      currentDay.setDate(startDate.getDate() + i);
       
       const dateFormats = generateDateFormats(currentDay);
       const dayData = dailyData.find(d => 
@@ -261,11 +242,11 @@ router.get('/daily-consumption-7days', async (req, res) => {
       kpis: {
         dailyConsumption7Days: {
           period: {
-            startDate: monday.toISOString().split('T')[0],
-            endDate: sunday.toISOString().split('T')[0],
+            startDate: startDate.toISOString().split('T')[0],
+            endDate: endDate.toISOString().split('T')[0],
             daysCount: 7,
-            logic: today.getDay() === 1 ? 'previous_week' : 'current_week',
-            description: today.getDay() === 1 ? 'Semana anterior completa (lunes a domingo)' : 'Semana actual completa (lunes a domingo)'
+            logic: 'last_7_days',
+            description: 'Últimos 7 días desde hoy hacia atrás'
           },
           dailyBreakdown: dailyBreakdown,
           summary: {
