@@ -1197,6 +1197,8 @@ router.post('/card/:cardId/transactions', authenticateToken, async (req, res) =>
       comentario: comentario,
       version: 1,
       isDeleted: false,
+      // Asegurar que el supplier sea correcto (minúscula)
+      supplier: 'cryptomate',
       history: [{
         version: 1,
         action: 'created',
