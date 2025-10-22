@@ -98,7 +98,7 @@ const migrateLatest10Users = async () => {
           last4: oldUser.last4_,
           status: oldUser.statusCard || 'ACTIVE',
           type: oldUser.tipeCard || 'virtual',
-          supplier: oldUser.supplier || 'CryptoMate',
+          supplier: oldUser.supplier || 'cryptomate',
           
           // NUEVOS CAMPOS
           expiration: oldUser.vencimiento || null,

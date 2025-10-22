@@ -165,7 +165,7 @@ class SyncService {
             _id: cardData.id,
             userId: cardData.user_id,
             name: cardData.card_holder_name,
-            supplier: 'CryptoMate',
+            supplier: 'cryptomate',
             last4: cardData.last4,
             type: cardData.type,
             status: cardData.status,

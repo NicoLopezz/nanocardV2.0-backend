@@ -145,7 +145,7 @@ class SmartSyncService {
             _id: cardData.id,
             userId: cardData.id,
             name: cardData.card_holder_name,
-            supplier: 'CryptoMate',
+            supplier: 'cryptomate',
             last4: cardData.last4,
             type: cardData.type || 'Virtual',
             status: cardData.status,

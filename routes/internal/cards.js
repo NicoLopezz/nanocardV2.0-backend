@@ -2354,8 +2354,8 @@ router.get('/public-stats', async (req, res) => {
     
     // Asegurar que siempre tengamos CryptoMate y Mercury en la respuesta
     const finalSupplierStats = [];
-    const cryptomateStats = supplierStats.find(s => s._id === 'CryptoMate') || {
-      _id: 'CryptoMate',
+    const cryptomateStats = supplierStats.find(s => s._id === 'cryptomate') || {
+      _id: 'cryptomate',
       totalCards: 0,
       activeCards: 0,
       inactiveCards: 0,

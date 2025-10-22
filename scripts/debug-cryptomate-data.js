@@ -39,7 +39,7 @@ async function debugCryptoMateData() {
         _id: targetCard.id,
         userId: targetCard.id,
         name: targetCard.card_holder_name,
-        supplier: 'CryptoMate'
+        supplier: 'cryptomate'
       };
       
       console.log('\n🔄 Converted to Nano format:');

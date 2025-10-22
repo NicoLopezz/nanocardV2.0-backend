@@ -159,7 +159,7 @@ const testMigrateSingleUser = async () => {
           last4: oldUser.last4_,
           status: oldUser.statusCard || 'ACTIVE',
           type: oldUser.tipeCard || 'virtual',
-          supplier: oldUser.supplier || 'CryptoMate',
+          supplier: oldUser.supplier || 'cryptomate',
           expiration: oldUser.vencimiento || null,
           phoneNumber: oldUser.phone_number || null,
           deposited: oldUser.total_depositado || 0,
