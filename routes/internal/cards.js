@@ -1677,6 +1677,9 @@ router.post('/card/:cardId/transactions', authenticateToken, async (req, res) =>
   try {
     const { cardId } = req.params;
     const { amount, operation, date, time, comentario = '' } = req.body;
+    
+    // DEBUG: Log the full request body to see what's being sent
+    console.log('🔍 DEBUG - Full request body:', JSON.stringify(req.body, null, 2));
 
     // Validar datos requeridos
     if (!amount || !operation || !date || !time) {
@@ -1749,6 +1752,8 @@ router.post('/card/:cardId/transactions', authenticateToken, async (req, res) =>
       comentario: finalComentario,
       version: 1,
       isDeleted: false,
+      // Asegurar que el supplier sea correcto (minúscula)
+      supplier: 'cryptomate',
       history: [{
         version: 1,
         action: 'created',
@@ -2364,8 +2369,8 @@ router.get('/public-stats', async (req, res) => {
       inactiveAvailable: 0
     };
     
-    const mercuryStats = supplierStats.find(s => s._id === 'Mercury') || {
-      _id: 'Mercury',
+    const mercuryStats = supplierStats.find(s => s._id === 'mercury') || {
+      _id: 'mercury',
       totalCards: 0,
       activeCards: 0,
       inactiveCards: 0,
