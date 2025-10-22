@@ -1130,6 +1130,9 @@ router.post('/card/:cardId/transactions', authenticateToken, async (req, res) =>
   try {
     const { cardId } = req.params;
     const { amount, operation, date, time, comentario = '' } = req.body;
+    
+    // DEBUG: Log the full request body to see what's being sent
+    console.log('🔍 DEBUG - Full request body:', JSON.stringify(req.body, null, 2));
 
     // Validar datos requeridos
     if (!amount || !operation || !date || !time) {
