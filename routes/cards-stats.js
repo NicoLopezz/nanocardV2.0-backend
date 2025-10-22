@@ -1208,7 +1208,14 @@ router.post('/card/:cardId/transactions', authenticateToken, async (req, res) =>
       }]
     };
 
+    // DEBUG: Log the transaction data before saving
+    console.log('🔍 DEBUG - Transaction data before save:', JSON.stringify(transactionData, null, 2));
+    
     const transaction = new Transaction(transactionData);
+    
+    // DEBUG: Log the transaction object before saving
+    console.log('🔍 DEBUG - Transaction object supplier:', transaction.supplier);
+    
     await transaction.save();
 
     // Actualizar totales de la tarjeta
