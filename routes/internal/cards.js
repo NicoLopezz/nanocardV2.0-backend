@@ -193,22 +193,22 @@ router.get('/admin/all', async (req, res) => {
       };
     });
 
-    // Obtener el timestamp del último refresh-all-cards-stats
+    // Obtener el timestamp del último refresh-smart-sync-optimized
     let lastRefreshTimestamp = null;
     try {
       const { getHistoryConnection } = require('../../config/database');
       const historyConnection = getHistoryConnection();
-      const refreshCollection = historyConnection.db.collection('refresh-all-cards-stats');
+      const refreshCollection = historyConnection.db.collection('refresh-smart-sync-optimized');
       
       const lastRefresh = await refreshCollection
-        .findOne({}, { sort: { timestamp: -1 } });
+        .findOne({}, { sort: { createdAt: -1 } });
       
       if (lastRefresh) {
-        lastRefreshTimestamp = lastRefresh.timestamp;
-        console.log(`📊 Last refresh timestamp: ${lastRefreshTimestamp}`);
+        lastRefreshTimestamp = lastRefresh.createdAt;
+        console.log(`📊 Last smart sync timestamp: ${lastRefreshTimestamp}`);
       }
     } catch (refreshError) {
-      console.error(`❌ Error fetching last refresh timestamp:`, refreshError.message);
+      console.error(`❌ Error fetching last smart sync timestamp:`, refreshError.message);
     }
 
     const responseTime = Date.now() - startTime;

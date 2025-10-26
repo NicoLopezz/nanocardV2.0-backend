@@ -48,10 +48,10 @@ const verifyLogin = async (loginName, last4, requestInfo = {}) => {
     
     console.log(`🔐 Attempting login with: "${loginName}" -> "${normalizedLoginName}" and last4: "${last4}"`);
     
-    // OPTIMIZACIÓN: Buscar tarjeta con lean() para mejor rendimiento
-    const card = await Card.findOne({ last4: last4 }).lean().maxTimeMS(15000);
+    // OPTIMIZACIÓN: Buscar todas las tarjetas con el mismo last4 para manejar duplicados
+    const cards = await Card.find({ last4: last4 }).lean().maxTimeMS(15000);
     
-    if (!card) {
+    if (!cards || cards.length === 0) {
       console.log(`❌ Card not found with last4: ${last4}`);
       
       // OPTIMIZACIÓN: Log login failed (asíncrono - no bloquea respuesta)
@@ -68,12 +68,52 @@ const verifyLogin = async (loginName, last4, requestInfo = {}) => {
       return { success: false, message: 'Invalid credentials' };
     }
     
-    // Normalizar el nombre de la tarjeta
+    console.log(`🔍 Found ${cards.length} card(s) with last4: ${last4}`);
+    
+    // Si hay múltiples tarjetas, usar el nombre para encontrar la correcta
+    let card = null;
+    if (cards.length === 1) {
+      card = cards[0];
+      console.log(`🔍 Single card found: "${card.name}"`);
+    } else {
+      console.log(`🔍 Multiple cards found, searching by name match...`);
+      for (const candidateCard of cards) {
+        const normalizedCardName = normalizeName(candidateCard.name);
+        console.log(`  - Checking: "${candidateCard.name}" -> "${normalizedCardName}"`);
+        if (normalizedCardName === normalizedLoginName) {
+          card = candidateCard;
+          console.log(`✅ Found matching card: "${card.name}"`);
+          break;
+        }
+      }
+      
+      if (!card) {
+        console.log(`❌ No card found with matching name for last4: ${last4}`);
+        console.log(`Available cards:`);
+        cards.forEach((c, index) => {
+          console.log(`  ${index + 1}. "${c.name}" -> "${normalizeName(c.name)}"`);
+        });
+        
+        // OPTIMIZACIÓN: Log login failed (asíncrono - no bloquea respuesta)
+        setImmediate(() => {
+          historyService.logLoginFailed(loginName, last4, 'Name mismatch with multiple cards', {
+            method: 'POST',
+            endpoint: '/api/auth/login',
+            statusCode: 401,
+            responseTime: Date.now() - startTime,
+            ...requestInfo
+          });
+        });
+        
+        return { success: false, message: 'Invalid credentials' };
+      }
+    }
+    
+    // Normalizar el nombre de la tarjeta seleccionada
     const normalizedCardName = normalizeName(card.name);
+    console.log(`🔍 Selected card: "${card.name}" -> "${normalizedCardName}"`);
     
-    console.log(`🔍 Found card: "${card.name}" -> "${normalizedCardName}"`);
-    
-    // Verificar si los nombres coinciden (normalizados)
+    // Verificar si los nombres coinciden (normalizados) - redundante pero por seguridad
     if (normalizedCardName !== normalizedLoginName) {
       console.log(`❌ Name mismatch: "${normalizedLoginName}" != "${normalizedCardName}"`);
       
