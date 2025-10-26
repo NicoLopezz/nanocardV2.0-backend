@@ -578,6 +578,8 @@ router.post('/import-all-transactions', async (req, res) => {
     await new Promise(resolve => setTimeout(resolve, 1000));
     
     const Transaction = getTransactionModel();
+    const Card = getCardModel();
+    const User = getUserModel();
     const existingTransactions = await Transaction.find({ supplier: 'mercury' }).lean();
     const existingTransactionIds = new Set(existingTransactions.map(t => t._id));
     

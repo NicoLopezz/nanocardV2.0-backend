@@ -288,14 +288,23 @@ router.post('/refresh-transactions/:cardId', async (req, res) => {
   
   try {
     const { cardId } = req.params;
+    // Calcular fechas automáticamente para los últimos 3 días
+    const today = new Date();
+    const threeDaysAgo = new Date(today);
+    threeDaysAgo.setDate(today.getDate() - 3);
+    
+    const todayString = today.toISOString().split('T')[0]; // Formato YYYY-MM-DD
+    const threeDaysAgoString = threeDaysAgo.toISOString().split('T')[0]; // Formato YYYY-MM-DD
+    
     const { 
-      fromDate = '2024-01-01', 
-      toDate = '2025-12-31', 
-      maxPages = 10,
+      fromDate = threeDaysAgoString, // Últimos 3 días
+      toDate = todayString,          // Hasta hoy
+      maxPages = 3,
       operations = 'TRANSACTION_APPROVED,TRANSACTION_REJECTED,TRANSACTION_REVERSED,TRANSACTION_REFUND,WALLET_DEPOSIT,OVERRIDE_VIRTUAL_BALANCE'
     } = req.body;
     
     console.log(`🚀 Starting transaction refresh for card: ${cardId}`);
+    console.log(`📅 Date range: ${fromDate} to ${toDate}`);
     
     const User = getUserModel();
     const Card = getCardModel();
@@ -676,6 +685,21 @@ router.post('/refresh-transactions/:cardId', async (req, res) => {
     
     console.log(`✅ Transaction refresh completed: ${importedTransactions} imported, ${updatedTransactions} updated (${totalTime}ms)`);
     
+    // Obtener stats actualizadas de la card
+    let updatedCardStats = null;
+    try {
+      const cardStatsService = require('../../../services/cardStatsService');
+      const recalculatedStats = await cardStatsService.recalculateCardStats(cardId);
+      updatedCardStats = {
+        deposited: recalculatedStats.card.deposited,
+        posted: recalculatedStats.card.posted,
+        available: recalculatedStats.card.available
+      };
+      console.log(`✅ Card stats recalculated: deposited=${updatedCardStats.deposited}, posted=${updatedCardStats.posted}, available=${updatedCardStats.available}`);
+    } catch (statsError) {
+      console.error(`❌ Error recalculating card stats:`, statsError.message);
+    }
+    
     res.json({
       success: true,
       message: 'OPTIMIZED Transaction refresh completed successfully',
@@ -692,6 +716,7 @@ router.post('/refresh-transactions/:cardId', async (req, res) => {
           improvement: `${((37804 - totalTime) / 37804 * 100).toFixed(1)}% faster`
         }
       },
+      updatedCardStats: updatedCardStats,
       errors: errors.slice(0, 5) // Mostrar solo los primeros 5 errores
     });
     

@@ -407,6 +407,7 @@ router.delete('/transaction/:transactionId/complete', requireAdmin, async (req, 
     console.log('📊 Step 4: Updating card stats for deleted transaction...');
     let statsUpdated = false;
     let statsError = null;
+    let recalculatedStats = null;
     
     try {
       const StatsRefreshService = require('../../services/statsRefreshService');
@@ -434,7 +435,8 @@ router.delete('/transaction/:transactionId/complete', requireAdmin, async (req, 
       
       // SIEMPRE actualizar stats de la card (independientemente del usuario)
       console.log(`🔄 Updating card stats...`);
-      await StatsRefreshService.refreshCardStats(transactionData.cardId);
+      const cardStatsService = require('../../services/cardStatsService');
+      recalculatedStats = await cardStatsService.recalculateCardStats(transactionData.cardId);
       console.log(`✅ Card stats updated successfully`);
       
       statsUpdated = true;
@@ -501,6 +503,11 @@ router.delete('/transaction/:transactionId/complete', requireAdmin, async (req, 
         cardId: transactionData.cardId,
         userId: transactionData.userId
       },
+      updatedCardStats: statsUpdated ? {
+        deposited: recalculatedStats.card.deposited,
+        posted: recalculatedStats.card.posted,
+        available: recalculatedStats.card.available
+      } : null,
       statsUpdated: statsUpdated,
       statsError: statsError,
       responseTime: responseTime

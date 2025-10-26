@@ -35,6 +35,10 @@ const verifyLogin = async (loginName, last4, requestInfo = {}) => {
   const startTime = Date.now();
   
   try {
+    // ✅ Esperar a que las conexiones estén listas
+    const { waitForAllConnections } = require('../config/database');
+    await waitForAllConnections(10000); // 10 segundos timeout
+    
     const Card = getCardModel();
     const User = getUserModel();
     const Auth = getAuthModel();
@@ -223,6 +227,10 @@ const verifyToken = async (token) => {
 // Función para refrescar token
 const refreshToken = async (refreshToken) => {
   try {
+    // ✅ Esperar a que las conexiones estén listas
+    const { waitForAllConnections } = require('../config/database');
+    await waitForAllConnections(10000); // 10 segundos timeout
+    
     const Auth = getAuthModel();
     
     // Verificar si el refresh token existe y no ha expirado

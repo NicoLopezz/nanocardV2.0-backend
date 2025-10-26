@@ -29,6 +29,11 @@ const authSchema = new mongoose.Schema({
 // Función para obtener el modelo después de la conexión
 const getAuthModel = () => {
   const { databases } = require('../config/database');
+  
+  if (!databases.users.connection || databases.users.connection.readyState !== 1) {
+    throw new Error('Users database connection is not ready. Please wait for database initialization.');
+  }
+  
   return databases.users.connection.model('Auth', authSchema);
 };
 

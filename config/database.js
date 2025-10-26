@@ -31,6 +31,8 @@ const databases = {
 const connectDatabases = async () => {
   try {
     for (const [name, dbConfig] of Object.entries(databases)) {
+      console.log(`🔄 Connecting to ${name} database...`);
+      
       dbConfig.connection = await mongoose.createConnection(dbConfig.uri, {
         useNewUrlParser: true,
         useUnifiedTopology: true,
@@ -62,8 +64,31 @@ const connectDatabases = async () => {
         console.log(`🔄 ${name} database reconnected`);
       });
       
-      console.log(`✅ Connected to ${name} database`);
+      // ✅ Esperar a que la conexión esté completamente lista
+      await new Promise((resolve, reject) => {
+        if (dbConfig.connection.readyState === 1) {
+          resolve();
+        } else {
+          const timeout = setTimeout(() => {
+            reject(new Error(`Timeout waiting for ${name} database connection`));
+          }, 30000);
+          
+          dbConfig.connection.once('open', () => {
+            clearTimeout(timeout);
+            resolve();
+          });
+          
+          dbConfig.connection.once('error', (err) => {
+            clearTimeout(timeout);
+            reject(err);
+          });
+        }
+      });
+      
+      console.log(`✅ ${name} database ready for queries`);
     }
+    
+    console.log('✅ All databases connected and ready');
   } catch (error) {
     console.error('❌ Database connection error:', error);
     console.error('❌ Retrying connection in 5 seconds...');
@@ -100,6 +125,30 @@ const checkDatabaseHealth = async () => {
   return health;
 };
 
+// Función para verificar si todas las conexiones están listas
+const areAllConnectionsReady = () => {
+  for (const [name, dbConfig] of Object.entries(databases)) {
+    if (!dbConfig.connection || dbConfig.connection.readyState !== 1) {
+      return false;
+    }
+  }
+  return true;
+};
+
+// Función para esperar a que todas las conexiones estén listas
+const waitForAllConnections = async (timeoutMs = 30000) => {
+  const startTime = Date.now();
+  
+  while (!areAllConnectionsReady()) {
+    if (Date.now() - startTime > timeoutMs) {
+      throw new Error('Timeout waiting for database connections');
+    }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  
+  return true;
+};
+
 // Función para cerrar todas las conexiones
 const closeDatabaseConnections = async () => {
   try {
@@ -119,6 +168,8 @@ module.exports = {
   connectDatabases, 
   closeDatabaseConnections,
   checkDatabaseHealth,
+  areAllConnectionsReady,
+  waitForAllConnections,
   getUsersConnection,
   getCardsConnection,
   getTransactionsConnection,

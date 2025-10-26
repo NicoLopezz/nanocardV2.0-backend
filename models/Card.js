@@ -98,6 +98,11 @@ const cardSchema = new mongoose.Schema({
 // Función para obtener el modelo después de la conexión
 const getCardModel = () => {
   const { databases } = require('../config/database');
+  
+  if (!databases.cards.connection || databases.cards.connection.readyState !== 1) {
+    throw new Error('Cards database connection is not ready. Please wait for database initialization.');
+  }
+  
   return databases.cards.connection.model('Card', cardSchema);
 };
 
