@@ -769,12 +769,9 @@ router.post('/refresh-smart-sync-optimized', async (req, res) => {
       }
     };
     
-    // Calcular fechas para últimas 24 horas
     const now = new Date();
-    const last24Hours = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    
-    // Formato ISO completo con horas
-    const fromDate = last24Hours.toISOString();
+    const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+    const fromDate = threeDaysAgo.toISOString();
     const toDate = now.toISOString();
     
     console.log(`🚀 Starting OPTIMIZED SMART SYNC from ${fromDate} to ${toDate}`);
@@ -1031,7 +1028,7 @@ router.post('/refresh-smart-sync-optimized', async (req, res) => {
         dateRange: {
           from: fromDate,
           to: toDate,
-          period: '24 hours'
+          period: '3 days'
         },
         summary: {
           totalNewTransactions: totalNewTransactions,
@@ -1082,7 +1079,7 @@ router.post('/refresh-smart-sync-optimized', async (req, res) => {
       dateRange: {
         from: fromDate,
         to: toDate,
-        period: '2 hours'
+        period: '3 days'
       },
       cryptomate: {
         totalCards: cryptomateCardsTotal,

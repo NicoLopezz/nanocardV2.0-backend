@@ -663,6 +663,99 @@ router.get('/admin/:cardId/stats', authenticateToken, async (req, res) => {
   }
 });
 
+// Endpoint para cambiar el estado de una tarjeta
+router.put('/card/:cardId/status', authenticateToken, async (req, res) => {
+  const startTime = Date.now();
+  
+  try {
+    const { cardId } = req.params;
+    const { status } = req.body;
+    
+    if (!status) {
+      return res.status(400).json({
+        success: false,
+        message: 'Status is required'
+      });
+    }
+
+    const allowedStatuses = ['ACTIVE', 'FROZEN', 'BLOCKED', 'CLOSED', 'active', 'suspended', 'blocked', 'closed'];
+    
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid status. Allowed: ${allowedStatuses.join(', ')}`
+      });
+    }
+
+    const Card = getCardModel();
+
+    const existingCard = await Card.findById(cardId);
+    if (!existingCard) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Card not found' 
+      });
+    }
+
+    const previousStatus = existingCard.status;
+    
+    existingCard.status = status;
+    existingCard.updatedAt = new Date();
+    
+    await existingCard.save();
+
+    const responseTime = Date.now() - startTime;
+    console.log(`✅ Card ${cardId} status updated from ${previousStatus} to ${status} in ${responseTime}ms`);
+
+    try {
+      await historyService.logCRUDOperation(
+        'CARD_STATUS_UPDATED',
+        'Card',
+        cardId,
+        req.user,
+        [{
+          field: 'status',
+          oldValue: previousStatus,
+          newValue: status
+        }],
+        {
+          cardName: existingCard.name,
+          cardLast4: existingCard.last4
+        },
+        {
+          method: 'PUT',
+          endpoint: `/api/cards/card/${cardId}/status`,
+          statusCode: 200,
+          responseTime: responseTime
+        }
+      );
+    } catch (historyError) {
+      console.error('❌ Error logging status update to history:', historyError);
+    }
+
+    res.json({
+      success: true,
+      message: 'Card status updated successfully',
+      card: {
+        _id: existingCard._id,
+        name: existingCard.name,
+        status: existingCard.status,
+        previousStatus: previousStatus
+      },
+      responseTime: responseTime
+    });
+
+  } catch (error) {
+    const responseTime = Date.now() - startTime;
+    console.error(`❌ Error updating card status (${responseTime}ms):`, error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      responseTime: responseTime
+    });
+  }
+});
+
 // Endpoint para actualizar una tarjeta específica
 router.put('/card/:cardId', authenticateToken, async (req, res) => {
   try {
