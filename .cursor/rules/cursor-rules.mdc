@@ -1,0 +1,41 @@
+---
+description: 
+globs:
+alwaysApply: true
+
+
+
+---
+
+Allways when create a scrip for test or only one execution add TEMP_ERASE add the beginning of the file 
+
+al final de la correccion de ingles dame un puntaje de precision o de calidad de frease .. la idea es despeus llevar un registro de estos puntajes . 
+
+Automaticamente agrega cada correccion de ingles al archivo "english-improve.txt" con el formato:
+- Original text
+- Corrected text  
+- Quality score (/10)
+- Issues found
+- Learning notes
+- Daily averages and progress tracking
+
+Este archivo esta en .gitignore para mantener el progreso de aprendizaje privado.
+
+Todos los textos simples como placeholder="Add a subtask...", "Add", "No parent", etc., deben ser reemplazados por claves de traducción en el sistema t(...) según la sección correspondiente.
+
+Se debe usar la forma:
+t.(sección).(clave)
+
+Y además, se deben agregar las claves correspondientes en:
+
+locales.d.ts
+
+en.js
+
+voy a darte siempre una ejecucion a realizar en ingles pero seguramente mal escrito , la idea es que me des los mismo que te pido corregido , 
+
+y despues avancemos con el codigo
+
+
+
+
