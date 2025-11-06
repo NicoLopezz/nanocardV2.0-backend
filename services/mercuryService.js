@@ -34,6 +34,10 @@ class MercuryService {
 
   async getAllTransactions(options = {}) {
     try {
+      if (!this.token) {
+        throw new Error('Mercury API token is not configured');
+      }
+      
       const defaultOptions = {
         limit: 1000,
         offset: 0,
@@ -57,9 +61,14 @@ class MercuryService {
       
       const url = `${this.baseUrl}/account/${this.accountId}/transactions?${params.toString()}`;
       
+      const authToken = this.token.startsWith('Bearer ') ? this.token : `Bearer ${this.token}`;
+      
+      console.log(`🔐 Mercury API Request: ${url.substring(0, 100)}...`);
+      console.log(`🔐 Token configured: ${this.token ? 'Yes (length: ' + this.token.length + ')' : 'No'}`);
+      
       const response = await fetch(url, {
         headers: {
-          'Authorization': `Bearer ${this.token}`,
+          'Authorization': authToken,
           'accept': 'application/json',
           'Content-Type': 'application/json'
         }
@@ -67,6 +76,8 @@ class MercuryService {
 
       if (!response.ok) {
         const errorText = await response.text();
+        console.error(`❌ Mercury API Error: ${response.status} ${response.statusText}`);
+        console.error(`❌ Error details: ${errorText.substring(0, 200)}`);
         throw new Error(`Mercury API error: ${response.status} ${response.statusText}`);
       }
 
