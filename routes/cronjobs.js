@@ -917,7 +917,23 @@ router.post('/refresh-smart-sync-optimized', async (req, res) => {
       if (allPendingTransactions.length > 0) {
         // 2. Encontrar la transacción PENDING más antigua
         const oldestPending = allPendingTransactions[0];
-        const oldestPendingDate = oldestPending.createdAt;
+        let oldestPendingDate = oldestPending.createdAt;
+        
+        // Convertir a Date si es necesario (puede venir como string o Date)
+        if (!oldestPendingDate) {
+          console.warn('⚠️  Oldest PENDING transaction has no createdAt date, using 7 days ago as fallback');
+          oldestPendingDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        } else if (typeof oldestPendingDate === 'string') {
+          oldestPendingDate = new Date(oldestPendingDate);
+        } else if (!(oldestPendingDate instanceof Date)) {
+          oldestPendingDate = new Date(oldestPendingDate);
+        }
+        
+        // Validar que la fecha es válida
+        if (isNaN(oldestPendingDate.getTime())) {
+          console.warn('⚠️  Invalid date for oldest PENDING transaction, using 7 days ago as fallback');
+          oldestPendingDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        }
         
         console.log(`📅 Oldest PENDING transaction: ${oldestPendingDate.toISOString()}`);
         console.log(`📅 Checking Mercury API from ${oldestPendingDate.toISOString().split('T')[0]} to ${now.toISOString().split('T')[0]}`);
