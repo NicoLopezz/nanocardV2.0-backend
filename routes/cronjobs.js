@@ -1151,7 +1151,7 @@ router.post('/refresh-smart-sync-optimized', async (req, res) => {
       dateRange: {
         from: fromDate,
         to: toDate,
-        period: '3 days'
+        period: '1 hour'
       },
       cryptomate: {
         totalCards: cryptomateCardsTotal,
