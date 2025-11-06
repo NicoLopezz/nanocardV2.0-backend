@@ -41,7 +41,7 @@ const config = {
     API_KEY: process.env.API_KEY,
     API_KEY_CRONJOB: process.env.API_KEY_CRONJOB,
     PRODUCTION: process.env.PRODUCTION || 'https://nanocard.xyz',
-    BACKEND_URL: process.env.BACKEND_URL || process.env.PRODUCTION || 'https://nanocard.xyz',
+    BACKEND_URL: process.env.BACKEND_URL || 'https://nanocardv2-0-backend.onrender.com',
     JWT_SECRET: process.env.JWT_SECRET,
     JWT_EXPIRE: process.env.JWT_EXPIRE,
     
