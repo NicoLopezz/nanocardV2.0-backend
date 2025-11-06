@@ -1,12 +1,42 @@
 const express = require('express');
 const router = express.Router();
 const fetch = require('node-fetch');
+const config = require('../config/environment');
+
+const validateApiKey = (req, res, next) => {
+  const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '') || req.query.apiKey;
+  const validApiKey = config.API_KEY;
+  
+  if (!validApiKey) {
+    console.warn('⚠️  API_KEY not configured in environment variables');
+    return next();
+  }
+  
+  if (!apiKey) {
+    return res.status(401).json({
+      success: false,
+      message: 'API Key required. Provide it via X-API-Key header, Authorization Bearer token, or apiKey query parameter'
+    });
+  }
+  
+  if (apiKey !== validApiKey) {
+    return res.status(403).json({
+      success: false,
+      message: 'Invalid API Key'
+    });
+  }
+  
+  next();
+};
+
+router.use(validateApiKey);
 
 router.post('/refresh-all-cards-stats', async (req, res) => {
   const startTime = Date.now();
   
   try {
-    const BASE_URL = 'http://localhost:3001';
+    const config = require('../config/environment');
+    const BASE_URL = config.BACKEND_URL;
     const results = {
       cryptomate: {
         import: null,
@@ -198,7 +228,8 @@ router.post('/refresh-all-cards-stats-2months', async (req, res) => {
   const startTime = Date.now();
   
   try {
-    const BASE_URL = 'http://localhost:3001';
+    const config = require('../config/environment');
+    const BASE_URL = config.BACKEND_URL;
     const results = {
       cryptomate: {
         import: null,
@@ -418,7 +449,8 @@ router.post('/refresh-smart-sync', async (req, res) => {
   const startTime = Date.now();
   
   try {
-    const BASE_URL = 'http://localhost:3001';
+    const config = require('../config/environment');
+    const BASE_URL = config.BACKEND_URL;
     const results = {
       cryptomate: {
         import: null,
@@ -756,7 +788,8 @@ router.post('/refresh-smart-sync-optimized', async (req, res) => {
   const startTime = Date.now();
   
   try {
-    const BASE_URL = 'http://localhost:3001';
+    const config = require('../config/environment');
+    const BASE_URL = config.BACKEND_URL;
     const results = {
       cryptomate: {
         import: null,
@@ -770,14 +803,14 @@ router.post('/refresh-smart-sync-optimized', async (req, res) => {
     };
     
     const now = new Date();
-    const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
-    const fromDate = threeDaysAgo.toISOString();
+    const oneHourAgo = new Date(now.getTime() - 1 * 60 * 60 * 1000);
+    const fromDate = oneHourAgo.toISOString();
     const toDate = now.toISOString();
     
-    console.log(`🚀 Starting OPTIMIZED SMART SYNC from ${fromDate} to ${toDate}`);
+    console.log(`🚀 Starting OPTIMIZED SMART SYNC (last hour: ${fromDate} to ${toDate})`);
     
     // ========================================
-    // CRYPTOMATE: Últimas 24 horas (OPTIMIZADO)
+    // CRYPTOMATE: Última hora (OPTIMIZADO)
     // ========================================
     
     // CryptoMate Import (solo si es necesario) - OPTIMIZADO
@@ -797,7 +830,7 @@ router.post('/refresh-smart-sync-optimized', async (req, res) => {
       results.cryptomate.import = { success: false, error: error.message };
     }
     
-    // CryptoMate Refresh (últimas 24 horas - OPTIMIZADO)
+    // CryptoMate Refresh (última hora - OPTIMIZADO)
     try {
       const cryptoRefreshResponse = await fetch(`${BASE_URL}/api/real-cryptomate/refresh-all-transactions-full`, {
         method: 'POST',
@@ -805,9 +838,9 @@ router.post('/refresh-smart-sync-optimized', async (req, res) => {
         body: JSON.stringify({
           fromDate: fromDate.split('T')[0], // Solo fecha para CryptoMate
           toDate: toDate.split('T')[0],     // Solo fecha para CryptoMate
-          maxPages: 3 // Aumentado para 24 horas
+          maxPages: 2 // Reducido para 1 hora
         }),
-        timeout: 30000 // 30 segundos timeout para 24 horas
+        timeout: 15000 // 15 segundos timeout para 1 hora
       });
       
       if (cryptoRefreshResponse.ok) {
@@ -820,7 +853,7 @@ router.post('/refresh-smart-sync-optimized', async (req, res) => {
     }
     
     // ========================================
-    // MERCURY: Últimas 24 horas + PENDING paralelo
+    // MERCURY: Última hora + PENDING híbrido
     // ========================================
     
     // Mercury Import (solo si es necesario)
@@ -840,7 +873,7 @@ router.post('/refresh-smart-sync-optimized', async (req, res) => {
       results.mercury.import = { success: false, error: error.message };
     }
     
-    // Mercury Refresh (últimas 24 horas - OPTIMIZADO)
+    // Mercury Refresh (última hora - OPTIMIZADO)
     try {
       const mercuryRefreshResponse = await fetch(`${BASE_URL}/api/real-mercury/import-all-transactions`, {
         method: 'POST',
@@ -849,7 +882,7 @@ router.post('/refresh-smart-sync-optimized', async (req, res) => {
           start: fromDate.split('T')[0], // Solo fecha para Mercury (compatible con API)
           end: toDate.split('T')[0]     // Solo fecha para Mercury (compatible con API)
         }),
-        timeout: 20000 // 20 segundos timeout para 24 horas
+        timeout: 15000 // 15 segundos timeout para 1 hora
       });
       
       if (mercuryRefreshResponse.ok) {
@@ -861,124 +894,146 @@ router.post('/refresh-smart-sync-optimized', async (req, res) => {
       results.mercury.refresh = { success: false, error: error.message };
     }
     
-    // Mercury PENDING individuales (OPTIMIZADO - PARALELO)
+    // Mercury PENDING - LÓGICA HÍBRIDA (sin límite de días)
     try {
-      console.log('🔄 Checking Mercury PENDING transactions in parallel...');
+      console.log('🔄 Checking Mercury PENDING transactions (hybrid approach)...');
       
-      // Obtener transacciones PENDING de la DB (solo últimos 7 días)
       const { getTransactionModel } = require('../models/Transaction');
       const Transaction = getTransactionModel();
+      const mercuryService = require('../services/mercuryService');
       
-      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      
-      const pendingTransactions = await Transaction.find({ 
+      // 1. Obtener TODAS las transacciones PENDING (sin límite de días)
+      const allPendingTransactions = await Transaction.find({ 
         supplier: 'mercury',
-        status: 'pending',
-        createdAt: { $gte: sevenDaysAgo } // Solo PENDING de últimos 7 días
-      }).select('_id cardId').lean();
+        status: 'PENDING'
+      }).select('_id cardId createdAt').sort({ createdAt: 1 }).lean();
       
-      console.log(`📊 Found ${pendingTransactions.length} PENDING Mercury transactions (last 7 days)`);
+      console.log(`📊 Found ${allPendingTransactions.length} PENDING Mercury transactions (all time)`);
       
       let pendingUpdated = 0;
       let pendingErrors = 0;
       const pendingResults = [];
       
-      // OPTIMIZACIÓN: Procesar en batches paralelos
-      const BATCH_SIZE = 5;
-      const batches = [];
-      for (let i = 0; i < pendingTransactions.length; i += BATCH_SIZE) {
-        batches.push(pendingTransactions.slice(i, i + BATCH_SIZE));
-      }
-      
-      // Procesar batches en paralelo
-      for (const batch of batches) {
-        const batchPromises = batch.map(async (tx) => {
-          try {
-            // Hacer consulta individual a Mercury API con timeout
-            const mercuryApiUrl = `https://api.mercury.com/api/v1/account/${tx.cardId}/transaction/${tx._id}`;
+      if (allPendingTransactions.length > 0) {
+        // 2. Encontrar la transacción PENDING más antigua
+        const oldestPending = allPendingTransactions[0];
+        const oldestPendingDate = oldestPending.createdAt;
+        
+        console.log(`📅 Oldest PENDING transaction: ${oldestPendingDate.toISOString()}`);
+        console.log(`📅 Checking Mercury API from ${oldestPendingDate.toISOString().split('T')[0]} to ${now.toISOString().split('T')[0]}`);
+        
+        // 3. Consultar Mercury API desde la fecha más antigua hasta ahora
+        const pendingFromDate = oldestPendingDate.toISOString().split('T')[0];
+        const pendingToDate = now.toISOString().split('T')[0];
+        
+        try {
+          // Obtener todas las transacciones de Mercury desde la fecha más antigua
+          const mercuryTransactions = await mercuryService.getAllTransactions({
+            startDate: pendingFromDate,
+            endDate: pendingToDate
+          });
+          
+          console.log(`📊 Fetched ${mercuryTransactions.length} Mercury transactions from API (${pendingFromDate} to ${pendingToDate})`);
+          
+          // 4. Crear un mapa de transacciones de Mercury por ID para búsqueda rápida
+          const mercuryTxMap = new Map();
+          mercuryTransactions.forEach(tx => {
+            mercuryTxMap.set(tx.id, tx);
+          });
+          
+          // 5. Comparar y actualizar PENDING que cambiaron de estado
+          const BATCH_SIZE = 50;
+          const bulkUpdates = [];
+          
+          for (let i = 0; i < allPendingTransactions.length; i += BATCH_SIZE) {
+            const batch = allPendingTransactions.slice(i, i + BATCH_SIZE);
             
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 segundos timeout
-            
-            const mercuryApiResponse = await fetch(mercuryApiUrl, {
-              method: 'GET',
-              headers: {
-                'accept': 'application/json;charset=utf-8',
-                'Authorization': `Bearer ${process.env.MERCURY_API_TOKEN}`
-              },
-              signal: controller.signal
-            });
-            
-            clearTimeout(timeoutId);
-            
-            if (mercuryApiResponse.ok) {
-              const transactionData = await mercuryApiResponse.json();
+            for (const pendingTx of batch) {
+              const mercuryTx = mercuryTxMap.get(pendingTx._id);
               
-              // Verificar si el estado cambió
-              if (transactionData.status && transactionData.status !== 'pending') {
-                // Actualizar en la DB
-                await Transaction.findByIdAndUpdate(tx._id, {
-                  status: transactionData.status,
-                  updatedAt: new Date()
-                });
+              if (mercuryTx) {
+                const newStatus = mercuryTx.status;
+                const newOperation = mercuryService.mapMercuryStatusToOperation(mercuryTx.status, mercuryTx.amount);
                 
-                return {
-                  transactionId: tx._id,
-                  oldStatus: 'pending',
-                  newStatus: transactionData.status,
-                  success: true
+                // Mapear status de Mercury a status del modelo
+                const statusMapping = {
+                  'pending': 'PENDING',
+                  'sent': 'SUCCESS',
+                  'cancelled': 'FAILED',
+                  'failed': 'FAILED',
+                  'reversed': 'FAILED',
+                  'blocked': 'FAILED'
                 };
+                
+                const mappedStatus = statusMapping[newStatus] || 'PENDING';
+                
+                // Si el estado cambió de pending, actualizar
+                if (newStatus !== 'pending') {
+                  bulkUpdates.push({
+                    updateOne: {
+                      filter: { _id: pendingTx._id },
+                      update: {
+                        $set: {
+                          status: mappedStatus,
+                          operation: newOperation,
+                          updatedAt: new Date()
+                        }
+                      }
+                    }
+                  });
+                  
+                  pendingResults.push({
+                    transactionId: pendingTx._id,
+                    oldStatus: 'pending',
+                    newStatus: newStatus,
+                    newOperation: newOperation,
+                    success: true
+                  });
+                } else {
+                  pendingResults.push({
+                    transactionId: pendingTx._id,
+                    status: 'still_pending',
+                    success: true
+                  });
+                }
               } else {
-                return {
-                  transactionId: tx._id,
-                  status: 'still_pending',
+                // Transacción no encontrada en Mercury API (puede ser muy antigua o eliminada)
+                pendingResults.push({
+                  transactionId: pendingTx._id,
+                  status: 'not_found_in_api',
                   success: true
-                };
+                });
               }
-            } else {
-              return {
-                transactionId: tx._id,
-                success: false,
-                error: `HTTP ${mercuryApiResponse.status}`
-              };
             }
-            
-          } catch (error) {
-            return {
-              transactionId: tx._id,
-              success: false,
-              error: error.message
-            };
           }
-        });
-        
-        // Esperar que termine el batch actual
-        const batchResults = await Promise.all(batchPromises);
-        pendingResults.push(...batchResults);
-        
-        // Contar resultados
-        batchResults.forEach(result => {
-          if (result.success && result.newStatus) {
-            pendingUpdated++;
-          } else if (!result.success) {
-            pendingErrors++;
+          
+          // 6. Ejecutar actualizaciones en bulk
+          if (bulkUpdates.length > 0) {
+            await Transaction.bulkWrite(bulkUpdates, { ordered: false });
+            pendingUpdated = bulkUpdates.length;
+            console.log(`✅ Updated ${pendingUpdated} PENDING transactions`);
+          } else {
+            console.log(`✅ No PENDING transactions changed status`);
           }
-        });
-        
-        // Pequeña pausa entre batches
-        if (batches.indexOf(batch) < batches.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 200));
+          
+        } catch (pendingApiError) {
+          console.error('❌ Error fetching Mercury transactions for PENDING check:', pendingApiError);
+          pendingErrors++;
+          throw pendingApiError;
         }
+      } else {
+        console.log(`✅ No PENDING transactions found`);
       }
       
       results.mercury.pending = {
         success: true,
         summary: {
-          totalChecked: pendingTransactions.length,
+          totalChecked: allPendingTransactions.length,
           updated: pendingUpdated,
-          errors: pendingErrors
+          errors: pendingErrors,
+          oldestPendingDate: allPendingTransactions.length > 0 ? allPendingTransactions[0].createdAt : null
         },
-        results: pendingResults.slice(0, 10) // Limitar resultados para respuesta
+        results: pendingResults.slice(0, 10)
       };
       
       console.log(`✅ Mercury PENDING check completed: ${pendingUpdated} updated, ${pendingErrors} errors`);
@@ -988,6 +1043,7 @@ router.post('/refresh-smart-sync-optimized', async (req, res) => {
         success: false, 
         error: error.message 
       };
+      console.error('❌ Error in Mercury PENDING check:', error);
     }
     
     console.log('✅ All OPTIMIZED SMART SYNC operations completed');
@@ -1028,7 +1084,7 @@ router.post('/refresh-smart-sync-optimized', async (req, res) => {
         dateRange: {
           from: fromDate,
           to: toDate,
-          period: '3 days'
+          period: '1 hour'
         },
         summary: {
           totalNewTransactions: totalNewTransactions,

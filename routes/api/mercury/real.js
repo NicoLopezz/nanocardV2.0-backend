@@ -1082,7 +1082,8 @@ router.post('/refresh-all-mercury-stats', async (req, res) => {
       
       try {
         // Hacer petición al endpoint de refresh stats
-        const refreshUrl = `http://localhost:3001/api/stats/cards/${card._id}/refresh`;
+        const config = require('../../../config/environment');
+        const refreshUrl = `${config.BACKEND_URL}/api/stats/cards/${card._id}/refresh`;
         
         const response = await fetch(refreshUrl, {
           method: 'POST',

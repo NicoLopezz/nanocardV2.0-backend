@@ -10,10 +10,11 @@ const config = {
     RECONCILIATIONS_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}dev_reconciliations` : 'mongodb://localhost:27017/dev_reconciliations',
     SYNCLOG_DB_URI: process.env.MONGODB_URI ? `${process.env.MONGODB_URI}dev_synclog` : 'mongodb://localhost:27017/dev_synclog',
     
-    PORT: process.env.PORT || 3001,
+    PORT: process.env.PORT || 3002,
     NODE_ENV: 'development',
     API_KEY: process.env.API_KEY,
     DEV: process.env.DEV || 'http://localhost:10001',
+    BACKEND_URL: process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3002}`,
     JWT_SECRET: process.env.JWT_SECRET || 'dev-secret-key',
     JWT_EXPIRE: process.env.JWT_EXPIRE || '2d',
     
@@ -38,6 +39,7 @@ const config = {
     NODE_ENV: 'production',
     API_KEY: process.env.API_KEY,
     PRODUCTION: process.env.PRODUCTION || 'https://nanocard.xyz',
+    BACKEND_URL: process.env.BACKEND_URL || process.env.PRODUCTION || 'https://nanocard.xyz',
     JWT_SECRET: process.env.JWT_SECRET,
     JWT_EXPIRE: process.env.JWT_EXPIRE,
     
