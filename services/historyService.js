@@ -7,22 +7,129 @@ const historyService = {
     try {
       const History = getHistoryModel();
       
+      console.log('📝 Creating history event with metadata:', JSON.stringify(eventData.metadata || {}, null, 2));
+      
       const historyEvent = new History({
         _id: uuidv4(),
         ...eventData,
         timestamp: new Date()
       });
       
+      console.log('💾 History event before save:', JSON.stringify({
+        eventType: historyEvent.eventType,
+        entityType: historyEvent.entityType,
+        entityId: historyEvent.entityId,
+        metadata: historyEvent.metadata
+      }, null, 2));
+      
       await historyEvent.save();
+      
+      console.log('✅ History event saved successfully');
+      console.log('📊 Saved metadata:', JSON.stringify(historyEvent.metadata || {}, null, 2));
+      
       return historyEvent;
     } catch (error) {
       console.error('❌ Error creating history event:', error);
+      console.error('❌ Event data:', JSON.stringify(eventData, null, 2));
       throw error;
     }
   },
 
   // Log de login exitoso
   logLoginSuccess: async (user, card, requestInfo) => {
+    // Obtener nombre real del usuario (NUNCA usar ID)
+    let userName = '';
+    if (user.profile?.firstName || user.profile?.lastName) {
+      userName = `${user.profile?.firstName || ''} ${user.profile?.lastName || ''}`.trim();
+    }
+    // Si no tiene firstName/lastName, usar username SOLO si no es un ID
+    if (!userName && user.username) {
+      const isLikelyId = user.username.length > 20 && /^[a-zA-Z0-9]+$/.test(user.username);
+      if (!isLikelyId) {
+        userName = user.username;
+      }
+    }
+    // Si aún no tenemos nombre, usar nombre de la tarjeta
+    if (!userName && card?.name) {
+      userName = card.name;
+    }
+    // Fallback final
+    userName = userName || 'Unknown User';
+    
+    // Parsear información del dispositivo y navegador desde User-Agent
+    let deviceInfo = {};
+    let browserInfo = {};
+    let osInfo = {};
+    
+    try {
+      const UAParser = require('ua-parser-js');
+      const parser = new UAParser(requestInfo.userAgent || '');
+      const result = parser.getResult();
+      
+      deviceInfo = {
+        type: result.device?.type || 'Unknown',
+        vendor: result.device?.vendor || 'Unknown',
+        model: result.device?.model || 'Unknown'
+      };
+      
+      browserInfo = {
+        name: result.browser?.name || 'Unknown',
+        version: result.browser?.version || 'Unknown',
+        major: result.browser?.major || 'Unknown'
+      };
+      
+      osInfo = {
+        name: result.os?.name || 'Unknown',
+        version: result.os?.version || 'Unknown'
+      };
+    } catch (error) {
+      console.error('❌ Error parsing user agent:', error);
+    }
+    
+    // Construir metadata completo con toda la información
+    const metadata = {
+      loginMethod: 'card',
+      cardLast4: card.last4,
+      cardName: card.name,
+      device: {
+        type: deviceInfo.type,
+        vendor: deviceInfo.vendor,
+        model: deviceInfo.model,
+        isMobile: deviceInfo.type === 'mobile' || deviceInfo.type === 'tablet'
+      },
+      browser: {
+        name: browserInfo.name,
+        version: browserInfo.version,
+        major: browserInfo.major
+      },
+      os: {
+        name: osInfo.name,
+        version: osInfo.version
+      },
+      network: {
+        ip: requestInfo.ip || 'Unknown',
+        origin: requestInfo.origin || 'Unknown',
+        referer: requestInfo.referer || 'Unknown',
+        host: requestInfo.host || 'Unknown',
+        xForwardedFor: requestInfo.xForwardedFor || null,
+        xRealIp: requestInfo.xRealIp || null,
+        xForwardedProto: requestInfo.xForwardedProto || null
+      },
+      headers: {
+        acceptLanguage: requestInfo.acceptLanguage || 'Unknown',
+        acceptEncoding: requestInfo.acceptEncoding || 'Unknown',
+        accept: requestInfo.accept || 'Unknown',
+        connection: requestInfo.connection || 'Unknown',
+        secFetchSite: requestInfo.secFetchSite || null,
+        secFetchMode: requestInfo.secFetchMode || null,
+        secFetchUser: requestInfo.secFetchUser || null,
+        secChUa: requestInfo.secChUa || null,
+        secChUaPlatform: requestInfo.secChUaPlatform || null,
+        secChUaMobile: requestInfo.secChUaMobile || null
+      },
+      rawUserAgent: requestInfo.userAgent || 'Unknown'
+    };
+    
     return await historyService.createEvent({
       eventType: 'LOGIN_SUCCESS',
       entityType: 'User',
@@ -30,17 +137,20 @@ const historyService = {
       userId: user._id,
       userRole: user.role,
       userEmail: user.email,
-      userName: `${user.profile?.firstName || ''} ${user.profile?.lastName || ''}`.trim() || user.username,
+      userName: userName,
       action: 'authenticated',
       category: 'authentication',
       severity: 'low',
-      description: `User ${user.username} logged in successfully`,
-      metadata: {
-        loginMethod: 'card',
-        cardLast4: card.last4,
-        cardName: card.name
+      description: `User ${userName} logged in successfully`,
+      metadata: metadata,
+      requestInfo: {
+        method: requestInfo.method || 'POST',
+        endpoint: requestInfo.endpoint || '/api/auth/login',
+        statusCode: requestInfo.statusCode || 200,
+        responseTime: requestInfo.responseTime || 0
       },
-      requestInfo: requestInfo
+      ipAddress: requestInfo.ip || 'Unknown',
+      userAgent: requestInfo.userAgent || 'Unknown'
     });
   },
 
@@ -98,53 +208,88 @@ const historyService = {
   },
 
   // Log de transacciones específicas
-  logTransactionUpdate: async (transaction, user, changes, requestInfo) => {
+  logTransactionUpdate: async (transaction, user, changes, requestInfo, additionalMetadata = {}) => {
+    // Obtener nombre real del usuario (NUNCA usar ID)
+    let userName = '';
+    if (user.profile?.firstName || user.profile?.lastName) {
+      userName = `${user.profile?.firstName || ''} ${user.profile?.lastName || ''}`.trim();
+    }
+    if (!userName && user.username) {
+      const isLikelyId = user.username.length > 20 && /^[a-zA-Z0-9]+$/.test(user.username);
+      if (!isLikelyId) {
+        userName = user.username;
+      }
+    }
+    userName = userName || 'Unknown User';
+    
     return await historyService.createEvent({
       eventType: 'TRANSACTION_UPDATED',
       entityType: 'Transaction',
       entityId: transaction._id,
-      userId: user.userId,
+      userId: user.userId || user._id,
       userRole: user.role,
       userEmail: user.email,
-      userName: user.username,
+      userName: userName,
       action: 'updated',
       category: 'data_operation',
       severity: 'medium',
-      description: `Transaction ${transaction.name} updated by ${user.username}`,
+      description: `Transaction ${transaction.name || transaction._id} (${transaction.operation || 'N/A'}) updated by ${userName}`,
       changes: changes,
       metadata: {
+        transactionId: transaction._id,
+        transactionName: transaction.name,
         transactionAmount: transaction.amount,
+        transactionOperation: transaction.operation,
         transactionStatus: transaction.status,
-        cardLast4: transaction.cardId
+        cardId: transaction.cardId,
+        cardLast4: transaction.cardLast4 || null,
+        ...additionalMetadata
       },
       requestInfo: requestInfo
     });
   },
 
   // Log de eliminación de transacciones
-  logTransactionDelete: async (transaction, user, requestInfo) => {
+  logTransactionDelete: async (transaction, user, requestInfo, additionalMetadata = {}) => {
+    // Obtener nombre real del usuario (NUNCA usar ID)
+    let userName = '';
+    if (user.profile?.firstName || user.profile?.lastName) {
+      userName = `${user.profile?.firstName || ''} ${user.profile?.lastName || ''}`.trim();
+    }
+    if (!userName && user.username) {
+      const isLikelyId = user.username.length > 20 && /^[a-zA-Z0-9]+$/.test(user.username);
+      if (!isLikelyId) {
+        userName = user.username;
+      }
+    }
+    userName = userName || 'Unknown User';
+    
     return await historyService.createEvent({
       eventType: 'TRANSACTION_DELETED',
       entityType: 'Transaction',
       entityId: transaction._id,
-      userId: user.userId,
+      userId: user.userId || user._id,
       userRole: user.role,
       userEmail: user.email,
-      userName: user.username,
+      userName: userName,
       action: 'deleted',
       category: 'data_operation',
-      severity: 'high',
-      description: `Transaction ${transaction.name} deleted by ${user.username}`,
+      severity: 'medium',
+      description: `Transaction ${transaction.name || transaction._id} (${transaction.operation || 'N/A'}) deleted by ${userName}`,
       changes: [{
         field: 'status',
         oldValue: transaction.status,
-        newValue: 'DELETED',
-        dataType: 'string'
+        newValue: 'DELETED'
       }],
       metadata: {
+        transactionId: transaction._id,
+        transactionName: transaction.name,
         transactionAmount: transaction.amount,
+        transactionOperation: transaction.operation,
         transactionStatus: 'DELETED',
-        cardLast4: transaction.cardId
+        cardId: transaction.cardId,
+        cardLast4: transaction.cardLast4 || null,
+        ...additionalMetadata
       },
       requestInfo: requestInfo
     });

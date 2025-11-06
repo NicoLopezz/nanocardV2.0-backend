@@ -709,7 +709,7 @@ router.put('/card/:cardId/status', authenticateToken, async (req, res) => {
 
     try {
       await historyService.logCRUDOperation(
-        'CARD_STATUS_UPDATED',
+        'CARD_UPDATED',
         'Card',
         cardId,
         req.user,
@@ -758,6 +758,8 @@ router.put('/card/:cardId/status', authenticateToken, async (req, res) => {
 
 // Endpoint para actualizar una tarjeta específica
 router.put('/card/:cardId', authenticateToken, async (req, res) => {
+  const startTime = Date.now();
+  
   try {
     const { cardId } = req.params;
     const updates = req.body;
@@ -791,6 +793,19 @@ router.put('/card/:cardId', authenticateToken, async (req, res) => {
       });
     }
 
+    // Crear historial de cambios (ANTES de actualizar)
+    const changes = [];
+    Object.keys(updateData).forEach(field => {
+      if (field !== 'updatedAt' && existingCard[field] !== updateData[field]) {
+        changes.push({
+          field: field,
+          oldValue: existingCard[field],
+          newValue: updateData[field],
+          dataType: typeof updateData[field]
+        });
+      }
+    });
+
     // Agregar timestamp de actualización
     updateData.updatedAt = new Date();
 
@@ -801,15 +816,50 @@ router.put('/card/:cardId', authenticateToken, async (req, res) => {
       { new: true, runValidators: true }
     );
 
+    const responseTime = Date.now() - startTime;
+    console.log(`✅ Card ${cardId} updated successfully in ${responseTime}ms`);
+
+    // Log en historial centralizado
+    if (changes.length > 0) {
+      try {
+        await historyService.logCRUDOperation(
+          'CARD_UPDATED',
+          'Card',
+          cardId,
+          req.user,
+          changes,
+          {
+            cardName: updatedCard.name,
+            cardLast4: updatedCard.last4,
+            cardStatus: updatedCard.status
+          },
+          {
+            method: 'PUT',
+            endpoint: `/api/cards/card/${cardId}`,
+            statusCode: 200,
+            responseTime: responseTime
+          }
+        );
+      } catch (historyError) {
+        console.error('❌ Error logging card update to history:', historyError);
+      }
+    }
+
     res.json({
       success: true,
       message: 'Card updated successfully',
-      card: updatedCard
+      card: updatedCard,
+      responseTime: responseTime
     });
 
   } catch (error) {
-    console.error('❌ Error updating card:', error);
-    res.status(500).json({ success: false, error: error.message });
+    const responseTime = Date.now() - startTime;
+    console.error(`❌ Error updating card (${responseTime}ms):`, error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      responseTime: responseTime
+    });
   }
 });
 
@@ -866,6 +916,12 @@ router.put('/card/:cardId/transactions/:transactionId', authenticateToken, async
 
     // Crear historial de cambios
     const changes = [];
+    const isAmountChange = updateData.amount !== undefined && existingTransaction.amount !== updateData.amount;
+    const isOperationChange = updateData.operation !== undefined && existingTransaction.operation !== updateData.operation;
+    
+    // Detectar si algún cambio puede afectar las stats del usuario
+    const affectsUserStats = isAmountChange || isOperationChange;
+    
     Object.keys(updateData).forEach(field => {
       if (field !== 'updatedAt' && existingTransaction[field] !== updateData[field]) {
         changes.push({
@@ -875,6 +931,32 @@ router.put('/card/:cardId/transactions/:transactionId', authenticateToken, async
         });
       }
     });
+
+    // Si hay cambios que afectan stats, obtener snapshot de stats de la tarjeta ANTES de actualizar
+    let cardStatsSnapshotBefore = null;
+    if (affectsUserStats) {
+      try {
+        const Card = getCardModel();
+        const cardBefore = await Card.findById(cardId).lean();
+        if (cardBefore && cardBefore.stats) {
+          cardStatsSnapshotBefore = {
+            money_in: cardBefore.stats.money_in || 0,
+            refund: cardBefore.stats.refund || 0,
+            posted: cardBefore.stats.posted || 0,
+            reversed: cardBefore.stats.reversed || 0,
+            rejected: cardBefore.stats.rejected || 0,
+            pending: cardBefore.stats.pending || 0,
+            withdrawal: cardBefore.stats.withdrawal || 0,
+            available: cardBefore.stats.available || 0,
+            total_all_transactions: cardBefore.stats.total_all_transactions || 0,
+            total_deleted_transactions: cardBefore.stats.total_deleted_transactions || 0,
+            deleted_amount: cardBefore.stats.deleted_amount || 0
+          };
+        }
+      } catch (statsError) {
+        console.error('❌ Error getting card stats snapshot (before):', statsError);
+      }
+    }
 
     // Incrementar versión
     const newVersion = existingTransaction.version + 1;
@@ -901,25 +983,67 @@ router.put('/card/:cardId/transactions/:transactionId', authenticateToken, async
       { new: true, runValidators: true }
     );
 
+    // Recalcular stats de la tarjeta después de la actualización
+    const cardStatsService = require('../../services/cardStatsService');
+    const recalculatedStats = await cardStatsService.recalculateCardStats(cardId);
+    
+    // Si hay cambios que afectan stats, obtener snapshot de stats de la tarjeta DESPUÉS de actualizar
+    let cardStatsSnapshotAfter = null;
+    if (affectsUserStats) {
+      try {
+        const Card = getCardModel();
+        const cardAfter = await Card.findById(cardId).lean();
+        if (cardAfter && cardAfter.stats) {
+          cardStatsSnapshotAfter = {
+            money_in: cardAfter.stats.money_in || 0,
+            refund: cardAfter.stats.refund || 0,
+            posted: cardAfter.stats.posted || 0,
+            reversed: cardAfter.stats.reversed || 0,
+            rejected: cardAfter.stats.rejected || 0,
+            pending: cardAfter.stats.pending || 0,
+            withdrawal: cardAfter.stats.withdrawal || 0,
+            available: cardAfter.stats.available || 0,
+            total_all_transactions: cardAfter.stats.total_all_transactions || 0,
+            total_deleted_transactions: cardAfter.stats.total_deleted_transactions || 0,
+            deleted_amount: cardAfter.stats.deleted_amount || 0
+          };
+        }
+      } catch (statsError) {
+        console.error('❌ Error getting card stats snapshot (after):', statsError);
+      }
+    }
+
     const responseTime = Date.now() - startTime;
     console.log(`✅ Transaction ${transactionId} updated successfully in ${responseTime}ms`);
 
     // Log en historial centralizado
     try {
+      const metadata = {
+        transactionAmount: updatedTransaction.amount,
+        transactionOperation: updatedTransaction.operation,
+        cardLast4: card.last4
+      };
+      
+      // Si hay cambios que afectan stats, agregar snapshots de stats de la tarjeta antes y después
+      if (affectsUserStats) {
+        if (cardStatsSnapshotBefore) {
+          metadata.cardStatsSnapshotBefore = cardStatsSnapshotBefore;
+        }
+        if (cardStatsSnapshotAfter) {
+          metadata.cardStatsSnapshotAfter = cardStatsSnapshotAfter;
+        }
+      }
+      
       await historyService.logTransactionUpdate(updatedTransaction, req.user, changes, {
         method: 'PUT',
         endpoint: `/api/cards/card/${cardId}/transactions/${transactionId}`,
         statusCode: 200,
         responseTime: responseTime
-      });
+      }, metadata);
     } catch (historyError) {
       console.error('❌ Error logging transaction update to history:', historyError);
       // No fallar la operación por error de historial
     }
-
-    // Recalcular stats de la tarjeta después de la actualización
-    const cardStatsService = require('../../services/cardStatsService');
-    const recalculatedStats = await cardStatsService.recalculateCardStats(cardId);
 
     // Invalidar caché relacionado
     const lastMovementsCacheKey = `last_movements_${cardId}`;
@@ -984,6 +1108,29 @@ router.delete('/card/:cardId/transactions/:transactionId', authenticateToken, as
       });
     }
 
+    // Obtener snapshot de stats de la tarjeta ANTES de eliminar
+    let cardStatsSnapshotBefore = null;
+    try {
+      const cardBefore = await Card.findById(cardId).lean();
+      if (cardBefore && cardBefore.stats) {
+        cardStatsSnapshotBefore = {
+          money_in: cardBefore.stats.money_in || 0,
+          refund: cardBefore.stats.refund || 0,
+          posted: cardBefore.stats.posted || 0,
+          reversed: cardBefore.stats.reversed || 0,
+          rejected: cardBefore.stats.rejected || 0,
+          pending: cardBefore.stats.pending || 0,
+          withdrawal: cardBefore.stats.withdrawal || 0,
+          available: cardBefore.stats.available || 0,
+          total_all_transactions: cardBefore.stats.total_all_transactions || 0,
+          total_deleted_transactions: cardBefore.stats.total_deleted_transactions || 0,
+          deleted_amount: cardBefore.stats.deleted_amount || 0
+        };
+      }
+    } catch (statsError) {
+      console.error('❌ Error getting card stats snapshot (before delete):', statsError);
+    }
+
     // Crear timestamp de eliminación
     const deletedAt = new Date();
     const deletedAtFormatted = deletedAt.toLocaleDateString('en-GB') + ' ' + 
@@ -1030,25 +1177,62 @@ router.delete('/card/:cardId/transactions/:transactionId', authenticateToken, as
       { new: true, runValidators: true }
     );
 
+    // Recalcular stats de la tarjeta después de la eliminación
+    const cardStatsService = require('../../services/cardStatsService');
+    const recalculatedStats = await cardStatsService.recalculateCardStats(cardId);
+
+    // Obtener snapshot de stats de la tarjeta DESPUÉS de eliminar y recalcular stats
+    let cardStatsSnapshotAfter = null;
+    try {
+      const cardAfter = await Card.findById(cardId).lean();
+      if (cardAfter && cardAfter.stats) {
+        cardStatsSnapshotAfter = {
+          money_in: cardAfter.stats.money_in || 0,
+          refund: cardAfter.stats.refund || 0,
+          posted: cardAfter.stats.posted || 0,
+          reversed: cardAfter.stats.reversed || 0,
+          rejected: cardAfter.stats.rejected || 0,
+          pending: cardAfter.stats.pending || 0,
+          withdrawal: cardAfter.stats.withdrawal || 0,
+          available: cardAfter.stats.available || 0,
+          total_all_transactions: cardAfter.stats.total_all_transactions || 0,
+          total_deleted_transactions: cardAfter.stats.total_deleted_transactions || 0,
+          deleted_amount: cardAfter.stats.deleted_amount || 0
+        };
+      }
+    } catch (statsError) {
+      console.error('❌ Error getting card stats snapshot (after delete):', statsError);
+    }
+
     const responseTime = Date.now() - startTime;
     console.log(`✅ Transaction ${transactionId} deleted successfully in ${responseTime}ms`);
 
     // Log en historial centralizado
     try {
+      const metadata = {
+        transactionAmount: deletedTransaction.amount,
+        transactionOperation: deletedTransaction.operation,
+        cardLast4: card.last4
+      };
+      
+      // Agregar snapshots de stats de la tarjeta antes y después de eliminar
+      if (cardStatsSnapshotBefore) {
+        metadata.cardStatsSnapshotBefore = cardStatsSnapshotBefore;
+      }
+      if (cardStatsSnapshotAfter) {
+        metadata.cardStatsSnapshotAfter = cardStatsSnapshotAfter;
+      }
+      
       await historyService.logTransactionDelete(deletedTransaction, req.user, {
         method: 'DELETE',
         endpoint: `/api/cards/card/${cardId}/transactions/${transactionId}`,
         statusCode: 200,
         responseTime: responseTime
-      });
+      }, metadata);
     } catch (historyError) {
       console.error('❌ Error logging transaction delete to history:', historyError);
       // No fallar la operación por error de historial
     }
-
-    // Recalcular stats de la tarjeta después de la eliminación
-    const cardStatsService = require('../../services/cardStatsService');
-    const recalculatedStats = await cardStatsService.recalculateCardStats(cardId);
 
     // Invalidar caché relacionado
     const lastMovementsCacheKey = `last_movements_${cardId}`;
@@ -1956,22 +2140,65 @@ router.post('/card/:cardId/transactions', authenticateToken, async (req, res) =>
     
     await user.save();
 
+    // Recalcular stats de la tarjeta después de la creación
+    const cardStatsService = require('../../services/cardStatsService');
+    const recalculatedStats = await cardStatsService.recalculateCardStats(cardId);
+
+    // Obtener snapshot de stats de la tarjeta DESPUÉS de crear la transacción y recalcular stats
+    let cardStatsSnapshotAfter = null;
+    try {
+      const Card = getCardModel();
+      const cardAfter = await Card.findById(cardId).lean();
+      if (cardAfter && cardAfter.stats) {
+        cardStatsSnapshotAfter = {
+          money_in: cardAfter.stats.money_in || 0,
+          refund: cardAfter.stats.refund || 0,
+          posted: cardAfter.stats.posted || 0,
+          reversed: cardAfter.stats.reversed || 0,
+          rejected: cardAfter.stats.rejected || 0,
+          pending: cardAfter.stats.pending || 0,
+          withdrawal: cardAfter.stats.withdrawal || 0,
+          available: cardAfter.stats.available || 0,
+          total_all_transactions: cardAfter.stats.total_all_transactions || 0,
+          total_deleted_transactions: cardAfter.stats.total_deleted_transactions || 0,
+          deleted_amount: cardAfter.stats.deleted_amount || 0
+        };
+        console.log('📊 Card stats snapshot after creation:', JSON.stringify(cardStatsSnapshotAfter, null, 2));
+      } else {
+        console.log('⚠️ Card not found or has no stats after creation');
+      }
+    } catch (statsError) {
+      console.error('❌ Error getting card stats snapshot after creation:', statsError);
+    }
+
     const responseTime = Date.now() - startTime;
     console.log(`✅ Transaction ${transaction._id} created successfully in ${responseTime}ms`);
 
     // Log en historial centralizado
     try {
+      const metadata = {
+        transactionAmount: transaction.amount,
+        transactionOperation: transaction.operation,
+        cardLast4: card.last4
+      };
+      
+      // Agregar snapshot de stats de la tarjeta DESPUÉS de crear la transacción
+      if (cardStatsSnapshotAfter) {
+        metadata.cardStatsSnapshotAfter = cardStatsSnapshotAfter;
+        console.log('✅ Adding cardStatsSnapshotAfter to metadata:', JSON.stringify(cardStatsSnapshotAfter, null, 2));
+      } else {
+        console.log('⚠️ cardStatsSnapshotAfter is null, not adding to metadata');
+      }
+      
+      console.log('📝 Final metadata to save:', JSON.stringify(metadata, null, 2));
+      
       await historyService.logCRUDOperation(
         'TRANSACTION_CREATED', 
         'Transaction', 
         transaction._id, 
         req.user, 
         [], 
-        {
-          transactionAmount: transaction.amount,
-          transactionOperation: transaction.operation,
-          cardLast4: card.last4
-        }, 
+        metadata, 
         {
           method: 'POST',
           endpoint: `/api/cards/card/${cardId}/transactions`,
@@ -1982,10 +2209,6 @@ router.post('/card/:cardId/transactions', authenticateToken, async (req, res) =>
     } catch (historyError) {
       console.error('❌ Error logging transaction creation to history:', historyError);
     }
-
-    // Recalcular stats de la tarjeta después de la creación
-    const cardStatsService = require('../../services/cardStatsService');
-    const recalculatedStats = await cardStatsService.recalculateCardStats(cardId);
 
     // Invalidar caché relacionado
     const lastMovementsCacheKey = `last_movements_${cardId}`;
@@ -2346,62 +2569,16 @@ router.get('/public-stats', async (req, res) => {
   
   try {
     const Card = getCardModel();
-    const Transaction = getTransactionModel();
     
     console.log('🚀 Fetching public cards statistics...');
     
-    // Fecha de hace 2 meses
-    const twoMonthsAgo = new Date();
-    twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
-    
-    // Obtener estadísticas generales
     const totalCards = await Card.countDocuments();
     
-    // Distribución por proveedor
-    const cardsBySupplier = await Card.aggregate([
-      {
-        $group: {
-          _id: '$supplier',
-          count: { $sum: 1 }
-        }
-      }
-    ]);
-    
-    // Distribución por estado
-    const cardsByStatus = await Card.aggregate([
-      {
-        $group: {
-          _id: '$status',
-          count: { $sum: 1 }
-        }
-      }
-    ]);
-    
-    // Tarjetas con balance CryptoMate
     const cardsWithCryptoMateBalance = await Card.countDocuments({
       'cryptoMateBalance.available_credit': { $gt: 0 }
     });
     
-    // Obtener tarjetas con actividad en los últimos 2 meses
-    const activeCards = await Transaction.aggregate([
-      {
-        $match: {
-          createdAt: { $gte: twoMonthsAgo },
-          isDeleted: { $ne: true },
-          status: { $ne: 'DELETED' }
-        }
-      },
-      {
-        $group: {
-          _id: '$cardId'
-        }
-      }
-    ]);
-    
-    const activeCardIds = activeCards.map(card => card._id);
-    
-    // Estadísticas por proveedor con actividad
-    const supplierStats = await Card.aggregate([
+    const cardsBySupplier = await Card.aggregate([
       {
         $group: {
           _id: '$supplier',
@@ -2409,7 +2586,7 @@ router.get('/public-stats', async (req, res) => {
           activeCards: {
             $sum: {
               $cond: [
-                { $in: ['$_id', activeCardIds] },
+                { $in: ['$status', ['ACTIVE', 'active']] },
                 1,
                 0
               ]
@@ -2418,74 +2595,32 @@ router.get('/public-stats', async (req, res) => {
           inactiveCards: {
             $sum: {
               $cond: [
-                { $not: { $in: ['$_id', activeCardIds] } },
+                { $not: { $in: ['$status', ['ACTIVE', 'active']] } },
                 1,
-                0
-              ]
-            }
-          },
-          totalAvailable: { $sum: '$stats.available' },
-          activeAvailable: {
-            $sum: {
-              $cond: [
-                { $in: ['$_id', activeCardIds] },
-                '$stats.available',
-                0
-              ]
-            }
-          },
-          inactiveAvailable: {
-            $sum: {
-              $cond: [
-                { $not: { $in: ['$_id', activeCardIds] } },
-                '$stats.available',
                 0
               ]
             }
           }
         }
-      },
-      {
-        $sort: { totalCards: -1 }
       }
     ]);
     
-    // Asegurar que siempre tengamos CryptoMate y Mercury en la respuesta
-    const finalSupplierStats = [];
-    const cryptomateStats = supplierStats.find(s => s._id === 'cryptomate') || {
+    const cryptomateStats = cardsBySupplier.find(s => s._id === 'cryptomate') || {
       _id: 'cryptomate',
       totalCards: 0,
       activeCards: 0,
-      inactiveCards: 0,
-      totalAvailable: 0,
-      activeAvailable: 0,
-      inactiveAvailable: 0
+      inactiveCards: 0
     };
     
-    const mercuryStats = supplierStats.find(s => s._id === 'mercury') || {
+    const mercuryStats = cardsBySupplier.find(s => s._id === 'mercury') || {
       _id: 'mercury',
       totalCards: 0,
       activeCards: 0,
-      inactiveCards: 0,
-      totalAvailable: 0,
-      activeAvailable: 0,
-      inactiveAvailable: 0
+      inactiveCards: 0
     };
     
-    finalSupplierStats.push(cryptomateStats, mercuryStats);
-    
-    // Obtener detalles de tarjetas activas e inactivas
-    const activeCardsDetails = await Card.find({
-      _id: { $in: activeCardIds }
-    }).select('_id name last4 supplier status stats.available');
-    
-    const inactiveCardsDetails = await Card.find({
-      _id: { $nin: activeCardIds }
-    }).select('_id name last4 supplier status stats.available');
-    
-    // Estadísticas generales de actividad
-    const totalActiveCards = activeCardIds.length;
-    const totalInactiveCards = totalCards - totalActiveCards;
+    const totalActiveCards = cryptomateStats.activeCards + mercuryStats.activeCards;
+    const totalInactiveCards = cryptomateStats.inactiveCards + mercuryStats.inactiveCards;
     
     const responseTime = Date.now() - startTime;
     console.log(`✅ Public cards statistics fetched in ${responseTime}ms`);
@@ -2498,45 +2633,97 @@ router.get('/public-stats', async (req, res) => {
           totalActiveCards,
           totalInactiveCards,
           cardsWithCryptoMateBalance,
-          activityPeriod: '2 months',
+          bySupplier: {
+            cryptomate: {
+              total: cryptomateStats.totalCards,
+              active: cryptomateStats.activeCards,
+              inactive: cryptomateStats.inactiveCards
+            },
+            mercury: {
+              total: mercuryStats.totalCards,
+              active: mercuryStats.activeCards,
+              inactive: mercuryStats.inactiveCards
+            }
+          },
           responseTime
-        },
-        distribution: {
-          bySupplier: cardsBySupplier,
-          byStatus: cardsByStatus
-        },
-        supplierDetails: finalSupplierStats,
-        activity: {
-          activeCards: totalActiveCards,
-          inactiveCards: totalInactiveCards,
-          activePercentage: totalCards > 0 ? Math.round((totalActiveCards / totalCards) * 100) : 0,
-          inactivePercentage: totalCards > 0 ? Math.round((totalInactiveCards / totalCards) * 100) : 0
-        },
-        cardsDetails: {
-          active: activeCardsDetails.map(card => ({
-            id: card._id,
-            name: card.name,
-            last4: card.last4,
-            supplier: card.supplier,
-            status: card.status,
-            available: card.stats.available
-          })),
-          inactive: inactiveCardsDetails.map(card => ({
-            id: card._id,
-            name: card.name,
-            last4: card.last4,
-            supplier: card.supplier,
-            status: card.status,
-            available: card.stats.available
-          }))
-        },
-        lastUpdated: new Date()
+        }
       }
     });
     
   } catch (error) {
     const responseTime = Date.now() - startTime;
     console.error(`❌ Error fetching public cards statistics (${responseTime}ms):`, error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message, 
+      responseTime: responseTime 
+    });
+  }
+});
+
+// Endpoint para obtener consumos aprobados de todas las cards en los últimos 30 días
+router.get('/approved-consumption', async (req, res) => {
+  const startTime = Date.now();
+  
+  try {
+    const Transaction = getTransactionModel();
+    
+    console.log('🚀 Fetching approved consumption statistics...');
+    
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const consumptionStats = await Transaction.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: thirtyDaysAgo },
+          operation: 'TRANSACTION_APPROVED',
+          status: 'SUCCESS',
+          isDeleted: { $ne: true }
+        }
+      },
+      {
+        $group: {
+          _id: '$supplier',
+          totalAmount: { $sum: { $abs: '$amount' } },
+          transactionCount: { $sum: 1 }
+        }
+      }
+    ]);
+    
+    const cryptomateStats = consumptionStats.find(s => s._id === 'cryptomate') || {
+      _id: 'cryptomate',
+      totalAmount: 0,
+      transactionCount: 0
+    };
+    
+    const mercuryStats = consumptionStats.find(s => s._id === 'mercury') || {
+      _id: 'mercury',
+      totalAmount: 0,
+      transactionCount: 0
+    };
+    
+    const totalApprovedConsumption = cryptomateStats.totalAmount + mercuryStats.totalAmount;
+    
+    const responseTime = Date.now() - startTime;
+    console.log(`✅ Approved consumption statistics fetched in ${responseTime}ms`);
+    
+    res.json({
+      success: true,
+      data: {
+        overview: {
+          period: '30 days',
+          totalApprovedConsumption,
+          cryptomate: cryptomateStats.totalAmount,
+          mercury: mercuryStats.totalAmount,
+          responseTime
+        }
+      }
+    });
+    
+  } catch (error) {
+    const responseTime = Date.now() - startTime;
+    console.error(`❌ Error fetching approved consumption statistics (${responseTime}ms):`, error);
     res.status(500).json({ 
       success: false, 
       error: error.message, 

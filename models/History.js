@@ -92,29 +92,8 @@ const historySchema = new mongoose.Schema({
   
   // Metadatos del evento
   metadata: {
-    // Para transacciones
-    transactionAmount: Number,
-    transactionStatus: String,
-    cardLast4: String,
-    
-    // Para tarjetas
-    cardName: String,
-    cardStatus: String,
-    
-    // Para usuarios
-    userRole: String,
-    userStatus: String,
-    
-    // Para sistema
-    errorCode: String,
-    errorMessage: String,
-    responseTime: Number,
-    cacheKey: String,
-    
-    // Para autenticación
-    loginMethod: String, // 'card', 'email', 'username'
-    loginAttempts: Number,
-    lastLoginDate: Date
+    type: mongoose.Schema.Types.Mixed,
+    default: {}
   },
   
   // Información de la request

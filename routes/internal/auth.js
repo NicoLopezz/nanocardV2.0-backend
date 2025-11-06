@@ -16,12 +16,34 @@ router.post('/login', async (req, res) => {
       });
     }
     
-    // Verificar credenciales con información de request
+    // Capturar toda la información posible del request
+    const clientIp = req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || 
+                     (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || 
+                     req.headers['x-real-ip'] || 'Unknown';
+    
     const requestInfo = {
-      userAgent: req.get('User-Agent'),
-      ip: req.ip,
-      origin: req.get('Origin')
+      method: req.method,
+      endpoint: req.path,
+      userAgent: req.get('User-Agent') || 'Unknown',
+      ip: clientIp,
+      origin: req.get('Origin') || 'Unknown',
+      referer: req.get('Referer') || req.get('Referrer') || 'Unknown',
+      acceptLanguage: req.get('Accept-Language') || 'Unknown',
+      acceptEncoding: req.get('Accept-Encoding') || 'Unknown',
+      accept: req.get('Accept') || 'Unknown',
+      connection: req.get('Connection') || 'Unknown',
+      host: req.get('Host') || 'Unknown',
+      xForwardedFor: req.get('X-Forwarded-For') || null,
+      xRealIp: req.get('X-Real-Ip') || null,
+      xForwardedProto: req.get('X-Forwarded-Proto') || null,
+      secFetchSite: req.get('Sec-Fetch-Site') || null,
+      secFetchMode: req.get('Sec-Fetch-Mode') || null,
+      secFetchUser: req.get('Sec-Fetch-User') || null,
+      secChUa: req.get('Sec-Ch-Ua') || null,
+      secChUaPlatform: req.get('Sec-Ch-Ua-Platform') || null,
+      secChUaMobile: req.get('Sec-Ch-Ua-Mobile') || null
     };
+    
     const result = await verifyLogin(loginName, last4, requestInfo);
     
     if (!result.success) {
