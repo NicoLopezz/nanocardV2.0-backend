@@ -5,10 +5,10 @@ const config = require('../config/environment');
 
 const validateApiKey = (req, res, next) => {
   const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '') || req.query.apiKey;
-  const validApiKey = config.API_KEY;
+  const validApiKey = config.API_KEY_CRONJOB;
   
   if (!validApiKey) {
-    console.warn('⚠️  API_KEY not configured in environment variables');
+    console.warn('⚠️  API_KEY_CRONJOB not configured in environment variables');
     return next();
   }
   
