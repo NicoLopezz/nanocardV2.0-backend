@@ -808,6 +808,7 @@ router.post('/refresh-smart-sync-optimized', async (req, res) => {
     const toDate = now.toISOString();
     
     console.log(`🚀 Starting OPTIMIZED SMART SYNC (last hour: ${fromDate} to ${toDate})`);
+    console.log(`🔗 BASE_URL: ${BASE_URL}`);
     
     // ========================================
     // CRYPTOMATE: Última hora (OPTIMIZADO)
@@ -815,40 +816,56 @@ router.post('/refresh-smart-sync-optimized', async (req, res) => {
     
     // CryptoMate Import (solo si es necesario) - OPTIMIZADO
     try {
-      const cryptoImportResponse = await fetch(`${BASE_URL}/api/cryptomate/import`, {
+      const cryptoImportUrl = `${BASE_URL}/api/cryptomate/import`;
+      console.log(`📡 Calling CryptoMate Import: ${cryptoImportUrl}`);
+      
+      const cryptoImportResponse = await fetch(cryptoImportUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
-        // Sin timeout - CryptoMate puede tardar lo que necesite
       });
+      
+      console.log(`📡 CryptoMate Import response: ${cryptoImportResponse.status} ${cryptoImportResponse.statusText}`);
       
       if (cryptoImportResponse.ok) {
         results.cryptomate.import = await cryptoImportResponse.json();
+        console.log(`✅ CryptoMate Import: ${results.cryptomate.import?.success ? 'OK' : 'FAILED'}`);
       } else {
+        const errorText = await cryptoImportResponse.text();
+        console.error(`❌ CryptoMate Import error: ${cryptoImportResponse.status} - ${errorText.substring(0, 200)}`);
         results.cryptomate.import = { success: false, error: `HTTP ${cryptoImportResponse.status}` };
       }
     } catch (error) {
+      console.error(`❌ CryptoMate Import exception:`, error.message);
       results.cryptomate.import = { success: false, error: error.message };
     }
     
     // CryptoMate Refresh (última hora - OPTIMIZADO)
     try {
-      const cryptoRefreshResponse = await fetch(`${BASE_URL}/api/real-cryptomate/refresh-all-transactions-full`, {
+      const cryptoRefreshUrl = `${BASE_URL}/api/real-cryptomate/refresh-all-transactions-full`;
+      console.log(`📡 Calling CryptoMate Refresh: ${cryptoRefreshUrl}`);
+      
+      const cryptoRefreshResponse = await fetch(cryptoRefreshUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fromDate: fromDate.split('T')[0], // Solo fecha para CryptoMate
           toDate: toDate.split('T')[0],     // Solo fecha para CryptoMate
           maxPages: 2 // Reducido para 1 hora
-        }),
-        timeout: 15000 // 15 segundos timeout para 1 hora
+        })
       });
+      
+      console.log(`📡 CryptoMate Refresh response: ${cryptoRefreshResponse.status} ${cryptoRefreshResponse.statusText}`);
       
       if (cryptoRefreshResponse.ok) {
         results.cryptomate.refresh = await cryptoRefreshResponse.json();
+        console.log(`✅ CryptoMate Refresh: ${results.cryptomate.refresh?.success ? 'OK' : 'FAILED'}`);
       } else {
+        const errorText = await cryptoRefreshResponse.text();
+        console.error(`❌ CryptoMate Refresh error: ${cryptoRefreshResponse.status} - ${errorText.substring(0, 200)}`);
         results.cryptomate.refresh = { success: false, error: `HTTP ${cryptoRefreshResponse.status}` };
       }
     } catch (error) {
+      console.error(`❌ CryptoMate Refresh exception:`, error.message);
       results.cryptomate.refresh = { success: false, error: error.message };
     }
     
@@ -858,39 +875,55 @@ router.post('/refresh-smart-sync-optimized', async (req, res) => {
     
     // Mercury Import (solo si es necesario)
     try {
-      const mercuryImportResponse = await fetch(`${BASE_URL}/api/real-mercury/import-mercury-cards`, {
+      const mercuryImportUrl = `${BASE_URL}/api/real-mercury/import-mercury-cards`;
+      console.log(`📡 Calling Mercury Import: ${mercuryImportUrl}`);
+      
+      const mercuryImportResponse = await fetch(mercuryImportUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        timeout: 10000 // 10 segundos timeout
+        headers: { 'Content-Type': 'application/json' }
       });
+      
+      console.log(`📡 Mercury Import response: ${mercuryImportResponse.status} ${mercuryImportResponse.statusText}`);
       
       if (mercuryImportResponse.ok) {
         results.mercury.import = await mercuryImportResponse.json();
+        console.log(`✅ Mercury Import: ${results.mercury.import?.success ? 'OK' : 'FAILED'}`);
       } else {
+        const errorText = await mercuryImportResponse.text();
+        console.error(`❌ Mercury Import error: ${mercuryImportResponse.status} - ${errorText.substring(0, 200)}`);
         results.mercury.import = { success: false, error: `HTTP ${mercuryImportResponse.status}` };
       }
     } catch (error) {
+      console.error(`❌ Mercury Import exception:`, error.message);
       results.mercury.import = { success: false, error: error.message };
     }
     
     // Mercury Refresh (última hora - OPTIMIZADO)
     try {
-      const mercuryRefreshResponse = await fetch(`${BASE_URL}/api/real-mercury/import-all-transactions`, {
+      const mercuryRefreshUrl = `${BASE_URL}/api/real-mercury/import-all-transactions`;
+      console.log(`📡 Calling Mercury Refresh: ${mercuryRefreshUrl}`);
+      
+      const mercuryRefreshResponse = await fetch(mercuryRefreshUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           start: fromDate.split('T')[0], // Solo fecha para Mercury (compatible con API)
           end: toDate.split('T')[0]     // Solo fecha para Mercury (compatible con API)
-        }),
-        timeout: 15000 // 15 segundos timeout para 1 hora
+        })
       });
+      
+      console.log(`📡 Mercury Refresh response: ${mercuryRefreshResponse.status} ${mercuryRefreshResponse.statusText}`);
       
       if (mercuryRefreshResponse.ok) {
         results.mercury.refresh = await mercuryRefreshResponse.json();
+        console.log(`✅ Mercury Refresh: ${results.mercury.refresh?.success ? 'OK' : 'FAILED'}`);
       } else {
+        const errorText = await mercuryRefreshResponse.text();
+        console.error(`❌ Mercury Refresh error: ${mercuryRefreshResponse.status} - ${errorText.substring(0, 200)}`);
         results.mercury.refresh = { success: false, error: `HTTP ${mercuryRefreshResponse.status}` };
       }
     } catch (error) {
+      console.error(`❌ Mercury Refresh exception:`, error.message);
       results.mercury.refresh = { success: false, error: error.message };
     }
     
